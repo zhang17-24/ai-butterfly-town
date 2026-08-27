@@ -174,8 +174,8 @@ export class TownScene extends Phaser.Scene {
         overlay.fillRect(column * grid.tileSize, row * grid.tileSize, grid.tileSize, grid.tileSize);
       }
     }
-    overlay.setAlpha(0.18);
     this.walkableOverlay = overlay;
+    overlay.setVisible(false);
     gameEvents.addEventListener("walkable:visible", (event) => {
       this.setWalkableVisible((event as CustomEvent<boolean>).detail);
     });
@@ -183,7 +183,8 @@ export class TownScene extends Phaser.Scene {
 
   setWalkableVisible(visible: boolean): void {
     if (!this.walkableOverlay) return;
-    this.walkableOverlay.setAlpha(visible ? 0.55 : 0.18);
+    this.walkableOverlay.setVisible(visible);
+    this.walkableOverlay.setAlpha(visible ? 0.55 : 0);
   }
 
   applyPlayer(player: Player | null, path: Position[] = []): void {
@@ -320,10 +321,45 @@ function chromaKeySheet(source: HTMLImageElement): { canvas: HTMLCanvasElement }
   ctx.drawImage(source, 0, 0);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = image.data;
-  for (let index = 0; index < data.length; index += 4) {
-    const [r, g, b] = [data[index], data[index + 1], data[index + 2]];
-    const isGreen = g > 105 && g > r * 1.25 && g > b * 1.15;
-    if (isGreen) data[index + 3] = 0;
+  const { width, height } = canvas;
+  const isPureGreen = (index: number) => {
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    return g > 100 && g > r * 1.35 && g > b * 1.2;
+  };
+  const greenMask = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (isPureGreen((y * width + x) * 4)) greenMask[y * width + x] = 1;
+    }
+  }
+  const neighborsGreen = (x: number, y: number): number => {
+    let count = 0;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < width && ny < height && greenMask[ny * width + nx]) count += 1;
+      }
+    }
+    return count;
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      if (greenMask[y * width + x]) {
+        data[index + 3] = 0;
+        continue;
+      }
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      // 绿幕混色的边缘像素：浅色(灰白/淡绿)且被绿色包围 → 抠成透明,消除白边
+      const isPaleEdge = g >= b && g > 108 && (r + g + b) / 3 > 130 && g >= r * 1.02;
+      if (isPaleEdge && neighborsGreen(x, y) >= 4) data[index + 3] = 0;
+    }
   }
   ctx.putImageData(image, 0, 0);
   return { canvas };
