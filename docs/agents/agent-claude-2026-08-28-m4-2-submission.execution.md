@@ -22,7 +22,7 @@
 
 ## 4. 提交与归属
 
-- 主提交:`feat: add npc dialogue sessions with ai and mock fallback`(见文末 hash 补记,见注册表)。
+- 主提交:`feat: add npc dialogue sessions with ai and mock fallback` → **`f7a7cc4`**(2026-08-28;40 files, +1537/−125)。
 - 本提交**不含**以下工作树内容(各会话自行提交):B 区(README/根 package.json/pnpm-lock/.github/scripts/Dockerfile/compose/.dockerignore、generation/world-structure.ts、world-generator.ts、+tests)、D 区(domain/event-propagation.*、event-preview.*、docs/agents/agent-claude-2026-08-28-m5-domain-layer.*)、A/B 文档、`.claude/`。
 - `apps/web/public/assets/npcs/design-*.png` 为生成中间稿,不被 web 引用,不入仓;生成器`generate-npc-sprites.ts` 保留在 `apps/server/scripts/`。
 

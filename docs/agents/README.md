@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | claude A 会话 | M5 事件注入与因果链(等 M4-2 提交后启动) | [需求](./agent-claude-2026-08-28-m4-2-dialogue.requirement.md) · [计划](./agent-claude-2026-08-28-m4-2-dialogue.plan.md) · [执行](./agent-claude-2026-08-28-m4-2-dialogue.execution.md) · [设计规格](./agent-claude-2026-08-28-m5-event-design.md) | 规格已就绪,监控中 |
 | claude B 会话(M9 交付) | CI/Docker/delivery:check/README(仅新增文件) | [需求](./agent-claude-2026-08-28-m9-delivery.requirement.md) · [计划](./agent-claude-2026-08-28-m9-delivery.plan.md) · [执行](./agent-claude-2026-08-28-m9-delivery.execution.md) | 工程件完成,等 M4-2 提交后回归 |
-| claude C 会话(M4-2,未注册)→ 接任者收尾 | 完成 M4-2 对话切片 | [需求](./agent-claude-2026-08-28-m4-2-submission.requirement.md) · [计划](./agent-claude-2026-08-28-m4-2-submission.plan.md) · [执行](./agent-claude-2026-08-28-m4-2-submission.execution.md) | 接任者收尾:补缺口(消息事件+版本、trace 入库、Schema/前端),提交主 commit(见文末 hash) |
+| claude C 会话(M4-2,未注册)→ 接任者收尾 | 完成 M4-2 对话切片 | [需求](./agent-claude-2026-08-28-m4-2-submission.requirement.md) · [计划](./agent-claude-2026-08-28-m4-2-submission.plan.md) · [执行](./agent-claude-2026-08-28-m4-2-submission.execution.md) | ✅ **已提交 `f7a7cc4`**;缺口已补(消息事件+版本、trace 入库、Schema/前端),verify 全绿 |
 | claude D 会话(Codex 接任) | M5 步骤 2/2.5 领域层+Mock 事件预览器(纯新增文件) | [需求](./agent-claude-2026-08-28-m5-domain-layer.requirement.md) · [计划](./agent-claude-2026-08-28-m5-domain-layer.plan.md) · [执行](./agent-claude-2026-08-28-m5-domain-layer.execution.md) | 进行中:步骤 2 已交付(45/45);2.5 预览器开发中 |
 
 > C 请见本表后补注册;若 C 停止活动,按下方"提交规则"由 A 代为接管提交与收尾。
