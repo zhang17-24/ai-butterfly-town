@@ -240,3 +240,44 @@ a { color: inherit; text-decoration: none; }
 .chain-node p { margin: 3px 0 0; color: #6b7b70; font-size: 9px; line-height: 1.5; }
 .chain-arrow { color: #8a978e; font-size: 9px; text-align: center; }
 .detail-meta { margin: 11px 0 0; color: #839187; font-size: 9px; }
+
+/* —— M7/M9 世界操作条:跳过时间 / 创建分支 —— */
+.skip-group { display: inline-flex; gap: 6px; align-items: center; padding: 3px 8px; border: 1px solid #3b4c42; border-radius: 8px; color: #a9b8ae; font-size: 10px; background: #223229; }
+.skip-group button { padding: 5px 8px; border: 0; border-radius: 6px; color: #d5dfd8; background: #2e4237; font-size: 10px; }
+.skip-group button:hover { background: #3a5344; }
+.skip-group button:disabled { opacity: .5; cursor: default; }
+.skip-progress { position: absolute; top: 20px; right: 20px; width: min(280px, calc(100% - 60px)); padding: 12px 14px; border: 1px solid #d8e2da; border-radius: 12px; background: #f5f8f4; box-shadow: 0 8px 26px rgba(23,59,54,.14); z-index: 11; }
+.skip-progress-head { display: flex; justify-content: space-between; align-items: center; color: #33453b; font-size: 11px; }
+.skip-progress-head span { color: #4c7d5f; font-weight: 700; }
+.skip-bar { height: 7px; margin: 9px 0 6px; overflow: hidden; border-radius: 999px; background: #e0e7e0; }
+.skip-bar i { display: block; height: 100%; border-radius: inherit; background: #5e8d6d; transition: width .4s ease; }
+.skip-progress p { margin: 0; color: #6c796f; font-size: 10px; }
+.branch-notice { position: absolute; left: 50%; bottom: 60px; padding: 9px 16px; transform: translateX(-50%); border-radius: 999px; color: #123c25; background: #d8f2de; box-shadow: 0 6px 20px rgba(23,59,54,.18); font-size: 11px; font-weight: 700; z-index: 12; }
+
+/* —— NPC 抽屉:记忆层 —— */
+.memory-panel h3 { display: flex; align-items: center; gap: 7px; }
+.memory-count { padding: 2px 7px; border-radius: 999px; color: #56725f; background: #e3efe6; font-size: 9px; }
+.memory-empty { margin: 0 0 8px; color: #8a968d; font-size: 10px; }
+.memory-item { padding: 10px 11px; border: 1px solid #e0e5df; border-radius: 10px; background: #f5f8f4; }
+.memory-item + .memory-item { margin-top: 7px; }
+.memory-head { display: flex; gap: 8px; align-items: center; font-size: 9px; }
+.memory-kind { padding: 2px 7px; border-radius: 6px; color: #47735a; background: #e2efe7; font-size: 8px; font-weight: 700; }
+.memory-kind.kind-dialogue { color: #4a6e5c; background: #e2efe7; }
+.memory-kind.kind-event { color: #36627e; background: #e1eef6; }
+.memory-kind.kind-action { color: #8a6a2f; background: #f4ecd9; }
+.memory-kind.kind-summary { color: #7c4b87; background: #efe4f2; }
+.memory-kind.kind-insight { color: #a34f35; background: #f7e6de; }
+.memory-time { color: #839187; }
+.memory-star { margin-left: auto; color: #c2b571; font-weight: 700; }
+.memory-star.hot { color: #d99b2b; }
+.memory-content { margin: 6px 0 0; color: #405048; font-size: 11px; line-height: 1.55; }
+.memory-subject { margin: 5px 0 0; color: #6d7a71; font-size: 9px; }
+.memory-explain { margin-top: 5px; color: #8a968d; font-size: 9px; }
+.memory-bonus { margin: 8px 0; padding: 6px 9px; border-radius: 7px; color: #7a5a17; background: #f6edd6; font-size: 9px; }
+.recalled-memories { margin: 10px 0; padding: 9px 10px; border: 1px solid #d9e6d9; border-radius: 9px; background: #eef5ee; }
+.recalled-memories > b { color: #3c5c46; font-size: 10px; }
+.recalled-memory { padding: 7px 0; }
+.recalled-memory + .recalled-memory { border-top: 1px dashed #d5e2d5; }
+.recalled-head { display: flex; gap: 7px; align-items: center; justify-content: space-between; color: #71806f; font-size: 9px; }
+.recalled-memory p { margin: 4px 0 3px; color: #405048; font-size: 10px; line-height: 1.5; }
+.recalled-reason { color: #8a968d; font-size: 9px; }

@@ -29,7 +29,7 @@ export class SimulationDecisionService {
     const memoryBonuses = new Map<string, number>();
     for (const candidate of candidates) {
       const bonus = computeMemoryRelevanceBonus(candidate, recalledMemories);
-      bonus.bonus > 0 && memoryBonuses.set(candidate.id, bonus.bonus);
+      if (bonus.bonus > 0) memoryBonuses.set(candidate.id, bonus.bonus);
       candidate.score = clampScore(candidate.score + bonus.bonus);
     }
     const fallback = [...candidates].sort((a, b) => b.score - a.score)[0];

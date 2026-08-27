@@ -19,12 +19,14 @@ if (verify.status !== 0) {
 
 console.log("\n步骤 2/2: 人工确认清单(交付前逐项核对)\n");
 const checklist = [
-  "线上 URL 可用,并标注演示账号与预计有效期",
-  "演示账号(默认 demo)与 AI 限额(.env)正确",
+  "线上 URL 可用,并标注演示账号与预计有效期(见 docs/delivery.md)",
+  "演示账号(默认 demo)与 AI 密钥位于 apps/server/.env(不入库)",
   "README 5 分钟 Quick Start 可一次跑通",
-  "Docker 单服务可启动并挂载数据库与资产 (需先解决 packages/shared 的 src 导出运行时问题)",
-  "OpenAPI 自动生成已接入 (当前未实现,需路由 schema)",
-  "5 分钟演示视频已录制",
+  "Docker 单服务可启动:docker compose up --build 后访问 :3100(共享库 dist 导出已修复)",
+  "OpenAPI 自动生成已接入:GET /api/openapi.json",
+  "真实 AI 契约:pnpm test:ai(chat 决策/对话+Seedream 生图,本地已验证 3/3)",
+  "E2E 冒烟:pnpm test:e2e(10/10)",
+  "5 分钟演示视频已录制(脚本见 docs/delivery.md)",
 ];
 for (const [index, item] of checklist.entries()) {
   console.log(`  ${index + 1}. [ ] ${item}`);

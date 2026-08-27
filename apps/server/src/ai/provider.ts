@@ -142,7 +142,7 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
         },
       };
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw new Error("AI_TIMEOUT");
+      if (error instanceof Error && error.name === "AbortError") throw new Error("AI_TIMEOUT", { cause: error });
       throw error;
     } finally {
       clearTimeout(timer);

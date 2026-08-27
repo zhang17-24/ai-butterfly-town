@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec } from "@ai-town/shared";
-import { api } from "../services/api";
+import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec, type Job, type MemoryEntry, type WorldBlueprint } from "@ai-town/shared";
+import { api, mapImageUrl as mapImageHref } from "../services/api";
 import { gameEvents } from "../game/event-bus";
 import { useWorldStore } from "../state/world-store";
 import { TownCanvas } from "../game/TownCanvas";
@@ -21,13 +21,20 @@ function StateBar({ label, value, reverse = false }: { label: string; value: num
 export function WorldPage() {
   const { worldId = "" } = useParams();
   const store = useWorldStore();
-  const [dialogue, setDialogue] = useState<DialogueSession | null>(null);
   const [dialogueDraft, setDialogueDraft] = useState("");
+  const queryClient = useQueryClient();
   const [approachingNpcId, setApproachingNpcId] = useState<string | null>(null);
   const [walkableHigh, setWalkableHigh] = useState(false);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventDraft, setEventDraft] = useState("");
   const [eventPreview, setEventPreview] = useState<EventPreviewResult | null>(null);
+  const [blueprint, setBlueprint] = useState<WorldBlueprint | null>(null);
+  const [mapImageUrl, setMapImageUrl] = useState<string | null>(null);
+  const [skipJobId, setSkipJobId] = useState<string | null>(null);
+  const [skipProgress, setSkipProgress] = useState<Job | null>(null);
+  const [skipTargetMinute, setSkipTargetMinute] = useState<number | null>(null);
+  const [skipError, setSkipError] = useState<string | null>(null);
+  const [branchNotice, setBranchNotice] = useState<string | null>(null);
   const previewEvent = useMutation({
     mutationFn: (text: string) => api.previewEvent(worldId, text),
     onSuccess: (result) => setEventPreview(result),
@@ -49,6 +56,24 @@ export function WorldPage() {
     refetchInterval: 3000,
   });
   const activeDialogue = useQuery({ queryKey: ["active-dialogue", worldId], queryFn: () => api.activeDialogue(worldId), enabled: Boolean(worldId) });
+  const dialogue = activeDialogue.data ?? null;
+  const memories = useQuery({
+    queryKey: ["memories", worldId, store.selectedNpcId],
+    queryFn: () => api.agentMemories(worldId, store.selectedNpcId!, { limit: 20 }),
+    enabled: Boolean(worldId && store.selectedNpcId),
+  });
+  const createBranch = useMutation({
+    mutationFn: () => api.createBranch(worldId),
+    onSuccess: () => {
+      setBranchNotice("已创建分支并暂停");
+      void initial.refetch();
+      window.setTimeout(() => setBranchNotice(null), 4000);
+    },
+    onError: (error) => {
+      setBranchNotice(`创建分支失败:${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setBranchNotice(null), 4000);
+    },
+  });
   const pause = useMutation({ mutationFn: (paused: boolean) => api.setPaused(worldId, paused, store.world?.version ?? 0) });
   const move = useMutation({
     mutationFn: (target: { x: number; y: number }) => api.movePlayer(worldId, target, useWorldStore.getState().world?.version ?? 0),
@@ -61,7 +86,7 @@ export function WorldPage() {
       useWorldStore.getState().applyDialogueStart(result);
       const travelMs = Math.min(2400, Math.max(300, result.path.length * 85));
       window.setTimeout(() => {
-        setDialogue(result.session);
+        queryClient.setQueryData(["active-dialogue", worldId], result.session);
         setApproachingNpcId(null);
       }, travelMs);
     },
@@ -69,13 +94,13 @@ export function WorldPage() {
   });
   const sendDialogue = useMutation({
     mutationFn: (content: string) => api.sendDialogueMessage(dialogue!.id, content),
-    onSuccess: (result) => setDialogue(result.session),
+    onSuccess: (result) => queryClient.setQueryData(["active-dialogue", worldId], result.session),
   });
   const endDialogue = useMutation({
     mutationFn: () => api.endDialogue(dialogue!.id),
     onSuccess: (result) => {
       useWorldStore.getState().applyDialogueEnd(result);
-      setDialogue(null);
+      queryClient.setQueryData(["active-dialogue", worldId], null);
     },
   });
 
@@ -92,9 +117,8 @@ export function WorldPage() {
   }, [initial.data]);
 
   useEffect(() => {
-    setDialogue(activeDialogue.data ?? null);
     if (activeDialogue.data) store.setSelectedNpc(activeDialogue.data.npcId);
-  }, [activeDialogue.data]);
+  }, [activeDialogue.data, store]);
 
   useEffect(() => {
     const listener = (event: Event) => store.setSelectedNpc((event as CustomEvent<string>).detail);
@@ -107,6 +131,64 @@ export function WorldPage() {
     gameEvents.addEventListener("map:move", listener);
     return () => gameEvents.removeEventListener("map:move", listener);
   }, [worldId]);
+
+  useEffect(() => {
+    if (!worldId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await api.worldBlueprint(worldId);
+        if (cancelled) return;
+        // 生成世界优先使用程序化地图 PNG;其次 AI 生成图;都没有则回退栖溪预置图
+        setBlueprint(result.blueprint);
+        setMapImageUrl(result.hasMapPng ? mapImageHref(worldId) : (result.asset?.imageUrl ?? null));
+      } catch {
+        // 世界尚无 blueprint(如早期世界),由 TownScene 回退到栖溪预置蓝图与地图
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [worldId]);
+
+  const startSkip = async (minutes: number) => {
+    if (!store.world || skipJobId) return;
+    setSkipError(null);
+    try {
+      const targetMinute = store.world.gameMinute + minutes;
+      const job = await api.skipTime(worldId, targetMinute, store.world.version);
+      setSkipProgress(job);
+      setSkipTargetMinute(targetMinute);
+      setSkipJobId(job.id);
+    } catch (err) {
+      setSkipError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    if (!skipJobId) return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      try {
+        const next = await api.getJob(skipJobId);
+        if (stopped) return;
+        setSkipProgress(next);
+        if (next.status === "succeeded") {
+          setSkipJobId(null);
+          setSkipTargetMinute(null);
+          void initial.refetch();
+        } else if (next.status === "failed") {
+          setSkipJobId(null);
+          setSkipTargetMinute(null);
+          setSkipError(next.error ?? "跳过时间失败");
+        }
+      } catch (err) {
+        if (stopped) return;
+        setSkipJobId(null);
+        setSkipTargetMinute(null);
+        setSkipError(err instanceof Error ? err.message : String(err));
+      }
+    }, 800);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [skipJobId, initial]);
 
   useEffect(() => {
     if (!worldId) return;
@@ -153,15 +235,24 @@ export function WorldPage() {
       <header className="world-topbar">
         <div className="world-title"><Link to="/">←</Link><div><b>{store.world.name}</b><span>周末河岸市集筹备中</span></div></div>
         <div className="world-clock"><span className="clock-label">周六</span><strong>{formatTime(store.world.gameMinute)}</strong><span className={store.connected ? "live on" : "live"}>{store.connected ? "实时" : "重连中"}</span></div>
-        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button></div>
+        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><span className="skip-group">跳过<button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(30); }}>+30分</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(60); }}>+1时</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(180); }}>+3时</button></span><button disabled={createBranch.isPending} onClick={() => createBranch.mutate()}>{createBranch.isPending ? "创建中…" : "创建分支"}</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button></div>
       </header>
 
       <section className="world-layout">
         <div className="map-stage">
-          <TownCanvas />
+          <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} />
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
           </div>
+          {skipProgress && skipJobId && (
+            <div className="skip-progress">
+              <div className="skip-progress-head"><b>世界推进中 → 第 {Math.floor((skipTargetMinute ?? store.world.gameMinute) / 1440) + 1} 天</b><span>{Math.round(skipProgress.progressPercent)}%</span></div>
+              <div className="skip-bar"><i style={{ width: `${skipProgress.progressPercent}%` }} /></div>
+              <p>{skipProgress.stageLabel ?? "正在推进世界模拟…"}</p>
+            </div>
+          )}
+          {skipError && <div className="map-legend error">跳过失败:{skipError}</div>}
+          {branchNotice && <div className="branch-notice">{branchNotice}</div>}
           <button className="event-inject-button" onClick={() => setEventPanelOpen((open) => !open)}>{eventPanelOpen ? "×" : "＋ 注入事件"}</button>
           {eventPanelOpen && <div className="event-inject-panel">
             <div className="inject-heading"><b>注入事件</b><span>文本将解析为结构化事实，确认后才写入世界</span></div>
@@ -240,6 +331,7 @@ export function WorldPage() {
           </div>
           <div className="drawer-section"><h3>人物底色</h3><p className="persona-copy">{selected.profile.personality}</p><p className="persona-copy muted">{selected.profile.motivation}</p></div>
           <div className="tag-group">{selected.profile.preferences.map((tag) => <span key={tag}>喜欢 · {tag}</span>)}{selected.profile.dislikes.map((tag) => <span className="negative" key={tag}>回避 · {tag}</span>)}</div>
+          <MemoryPanel memories={memories.data ?? []} loading={memories.isLoading} />
           <DecisionPanel trace={decisions.data?.[0] ?? null} loading={decisions.isLoading} />
         </aside>
       </div>}
@@ -248,17 +340,36 @@ export function WorldPage() {
 }
 
 function DecisionPanel({ trace, loading }: { trace: Awaited<ReturnType<typeof api.aiTraces>>[number] | null; loading: boolean }) {
+  const recalled = trace ? recalledMemoriesFromContext(trace.context) : [];
   if (loading) return <div className="decision-note"><b>最近一次决策</b><p>正在读取可解释决策记录…</p></div>;
   if (!trace) return <div className="decision-note"><b>最近一次决策</b><p>当前动作结束后会生成第一条 AI/Mock 决策记录。</p></div>;
   return <div className="decision-note trace-card">
     <div className="trace-heading"><b>最近一次决策</b><span className={trace.source === "ai" ? "trace-source ai" : "trace-source mock"}>{trace.source === "ai" ? "真实 AI" : "Mock 降级"}</span></div>
     <p>{trace.finalReason}</p>
+    {trace.memoryBonus && Object.keys(trace.memoryBonus).length > 0 && (
+      <div className="memory-bonus">记忆加成 · {Object.entries(trace.memoryBonus).map(([candidate, bonus]) => `${candidate} +${bonus}`).join(" / ")}</div>
+    )}
     <dl>
       <div><dt>模型</dt><dd>{trace.model}</dd></div>
       <div><dt>耗时</dt><dd>{trace.latencyMs} ms</dd></div>
       <div><dt>尝试</dt><dd>{trace.attempts} 次</dd></div>
       <div><dt>候选</dt><dd>{trace.candidates.length} 个</dd></div>
     </dl>
+    {recalled.length > 0 && (
+      <div className="recalled-memories">
+        <b>召回进 Prompt 的记忆 · {recalled.length} 条</b>
+        {recalled.map((memory, index) => (
+          <div key={memory.id ?? index} className="recalled-memory">
+            <div className="recalled-head">
+              <span className="memory-kind">{memoryKindLabel(memory.kind ?? "event")}</span>
+              {typeof memory.importance === "number" && <span>{memory.importance}</span>}
+            </div>
+            <p>{memory.content}</p>
+            <div className="recalled-reason">{memory.reasons.length > 0 ? memory.reasons.join("；") : "检索命中"}</div>
+          </div>
+        ))}
+      </div>
+    )}
     {trace.fallbackReason && <div className="fallback-reason">降级原因 · {humanizeFallback(trace.fallbackReason)}</div>}
     <details><summary>查看候选与校验</summary>
       <div className="candidate-list">{[...trace.candidates].sort((a, b) => b.score - a.score).map((candidate) => <div key={candidate.id} className={candidate.id === trace.finalActionId ? "chosen" : ""}><span>{candidate.label}</span><b>{candidate.score.toFixed(1)}</b></div>)}</div>
@@ -273,4 +384,90 @@ function humanizeFallback(reason: string) {
   if (reason.includes("AI_TIMEOUT")) return "模型超时，重试后已使用规则决策";
   if (reason.includes("UNKNOWN_ACTION")) return "模型引用了不存在的行动";
   return "模型输出未通过校验，已使用规则决策";
+}
+
+const MEMORY_KIND_LABELS: Record<MemoryEntry["kind"], string> = {
+  dialogue: "对话",
+  event: "事件",
+  action: "行动",
+  summary: "摘要",
+  insight: "认识",
+};
+
+function memoryKindLabel(kind: string): string {
+  return MEMORY_KIND_LABELS[kind as MemoryEntry["kind"]] ?? kind;
+}
+
+function memoryTime(minute: number): string {
+  const day = Math.floor(minute / 1440) + 1;
+  return `世界第${day}天 ${formatTime(minute % 1440)}`;
+}
+
+/** 从 metadataJson 提取简要召回信息(来源/地点/语气等)。 */
+function explainMemory(memory: MemoryEntry): string {
+  try {
+    const meta = JSON.parse(memory.metadataJson) as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof meta.sourceEventId === "string") parts.push(`源头事件 ${meta.sourceEventId.slice(0, 8)}`);
+    if (typeof meta.locationId === "string") parts.push(`地点 ${meta.locationId}`);
+    if (typeof meta.sessionId === "string") parts.push(`对话 ${meta.sessionId.slice(0, 8)}`);
+    if (typeof meta.tone === "string") parts.push(`语气 ${meta.tone}`);
+    if (typeof meta.source === "string") parts.push(`来源 ${meta.source}`);
+    if (typeof meta.importanceVia === "string") parts.push(`重要度经由 ${meta.importanceVia}`);
+    if (parts.length > 0) return `召回理由 · ${parts.join(" · ")}`;
+  } catch {
+    // metadataJson 可能不是 JSON,按无补充信息处理
+  }
+  return "";
+}
+
+interface RecalledMemoryView {
+  id?: string;
+  kind?: string;
+  content?: string;
+  importance?: number;
+  reasons: string[];
+}
+
+/** 决策 trace 的 context.recalledMemories(记录检索引擎实际召回进 Prompt 的记忆)。 */
+function recalledMemoriesFromContext(context: Record<string, unknown>): RecalledMemoryView[] {
+  const raw = context.recalledMemories;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.content !== "string") return [];
+    return [{
+      id: typeof record.id === "string" ? record.id : undefined,
+      kind: typeof record.kind === "string" ? record.kind : undefined,
+      content: record.content,
+      importance: typeof record.importance === "number" ? record.importance : undefined,
+      reasons: Array.isArray(record.reasons) ? record.reasons.filter((reason): reason is string => typeof reason === "string") : [],
+    }];
+  });
+}
+
+function MemoryPanel({ memories, loading }: { memories: MemoryEntry[]; loading: boolean }) {
+  const sorted = [...memories].sort((a, b) => b.worldMinute - a.worldMinute);
+  return (
+    <div className="drawer-section memory-panel">
+      <h3>记忆 <span className="memory-count">{memories.length}</span></h3>
+      {loading && <p className="memory-empty">正在读取记忆…</p>}
+      {!loading && sorted.length === 0 && <p className="memory-empty">暂无记忆 · 对话与事件发生后会逐步写入</p>}
+      {sorted.map((memory) => (
+        <div key={memory.id} className="memory-item">
+          <div className="memory-head">
+            <span className={`memory-kind kind-${memory.kind}`}>{memoryKindLabel(memory.kind)}</span>
+            <span className="memory-time">{memoryTime(memory.worldMinute)}</span>
+            <span className={memory.importance >= 70 ? "memory-star hot" : "memory-star"} title={`重要度 ${memory.importance}`}>
+              {memory.importance >= 70 ? "★" : "☆"} {memory.importance}
+            </span>
+          </div>
+          <p className="memory-content">{memory.content}</p>
+          {memory.subject && <div className="memory-subject">对象 · {memory.subject}</div>}
+          {explainMemory(memory) && <div className="memory-explain">{explainMemory(memory)}</div>}
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -13,38 +13,34 @@
 | `docs/agents/agent-prompts-2026-08-28.md` | 批量派发提示词(派发完成后归档) |
 | `docs/agents/archive-2026-08-28.md` | 已完结切片记录(每段 1–3 句,原三篇痕迹已收卷) |
 
-## 当前会话
+## 当前会话(2026-08-28 04:20 收官快照)
 
 | 会话 | 切片 | 状态 |
 | --- | --- | --- |
-| A 包(主线派发) | M5 事件注入+因果页+暴雨模板 | ✅ **已提交 `0bce62d` + `f95f7f4`**(预览/提交/传播/模拟注入/前端/因果页齐全) |
-| B | M9 工程残余(test:ai/E2E/故障注入/Docker dist 导出)+ M7 内部 | 主体完成,等全部合并后最终回归 |
-| C 接任者 | M4-2 收尾提交 | ✅ `f7a7cc4` |
-| D | M5 领域层(并入 0bce62d) | ✅ 步骤 2 交付 |
-| E | **记忆系统(D13/D14)**:`memory-system-design.md` + `src/memory/{caption,summarize,retrieval,importance,mock-decision-bonus}` | 进行中;**memory 中间态 typecheck 红(importance.ts:37),归 E** |
-| 活跃未注册会话 | 客户端行走/精灵修复 + 对话 AI 文件 | 已提交 051acd5/68e202f/8caf6db;工作树仍有未提交(provider/dialogue 等) |
+| M4-2(C 接任) | 对话切片 | ✅ `f7a7cc4` |
+| M5(A 包) | 事件注入+因果链 | ✅ `0bce62d` |
+| M6/M7/记忆系统接线 | 快照·跳过·分支 / 一句话生成(jobs+procedural PNG) / D13–D14 记忆全链 | ✅ `ea1339c`(127 测试中 103 项本轮并入) |
+| M9 交付 | OpenAPI D109 / test:ai D71(3/3) / e2e-smoke D70(10/10) / shared dist exports D102 | ✅ `a1f95d4` |
+| 收尾会话(活动) | lint(eslint.config.mjs)、delivery.md、ci.yml 细化、WorldPage/styles 微调 | 工作树未提交,进行中 |
 
-## 状态快照(2026-08-28 03:50)
+## 状态快照(04:20)
 
-- HEAD `c166353`(本表更新后);M4-2 `f7a7cc4` → M5 `0bce62d` 已提交;**M1–M5 全部贯通**。
-- 未提交:E 的 `src/memory/*`(设计+9 代码文件+测试,进行中)、B 类工程件(部分已提交)、活跃会话的 provider/dialogue/README 改动、`docs/living-requirement-map.html`、`docs/remaining-requirements.md`、`docs/agents/memory-system-design.md` 等痕迹。
-- 红状态(03:55 观测):`memory/importance.ts` 已消;新红在 `apps/server/src/db/database.ts:210`(语法错误,串行区会话 04:01 活跃中间态,归属未登记);**串行区现被占用,其他会话勿进**。
-- 待决:`b755d3c chore: checkpoint commit` 已并入并行会话工作;`src/memory/*` 与 `docs/living-requirement-map.html`、`remaining-requirements.md` 尚未提交。
+- HEAD `a1f95d4`;**pnpm verify 全绿:19 测试文件 127 用例 + 全量 build**(web 4.4s)。
+- 并行会话主体全部落地;剩余为 M9 收尾件(lint/文档/微调)与面试件(浏览器全流程手测、D103 线上、D104 视频、D107 决策账本)。
+- 未提交(收尾会话):eslint.config.mjs、docs/delivery.md、.github/ci.yml、scripts/delivery-check.mjs、WorldPage.tsx/styles.css 微调、根 package.json/lock、docker-compose.yml;B 的 docs 类(living-requirement-map.html、remaining-requirements.md、memory-system-design.md)仍未提交。
 
-## 串行区(一次只允许一个会话修改)
+## 串行区
 
-`packages/shared/src/index.ts`、`apps/server/src/db/{schema,database,repository}.ts`、`apps/server/src/app.ts`、`apps/web/src/App.tsx`、根 `package.json`(归 B)。
-**M5 已提交 → 串行区已释放**,任一会话进入前先在本表登记。纯新增文件/只读 import 均可并行。
+上表提交完成后**无专属占用**;收尾会话仅动前端页面与工程件。需要新路由时按守则先登记。
 
-## 任务分配
+## 任务分配(仅剩)
 
 | 任务 | 责任 | 触发 | 判据 |
 | --- | --- | --- | --- |
-| M6 接线(快照/跳过/分支;E 已备 snapshot-logic 纯函数) | 新主线会话 | 已释放 | 实施规划 §10 验收 |
-| M7 接线(Post /worlds、jobs、worker;B 已备生成器) | 新会话 | 可与 M6 排队 | 一句话生成可玩世界且可恢复 |
-| 记忆系统接线(消费 E 的 memory/*) | E 或其接任 | E 完成后 | D13/D14 检索+摘要+反思 |
-| M9 残余 | B | 并行 | delivery:check + E2E 绿 |
-| OpenAPI | 新会话 | 主线路由冻结后 | 覆盖全部路由 |
+| lint/交付文档收尾 | 收尾会话(进行中) | 并行 | delivery:check + lint 绿 |
+| 浏览器全流程手测(登录→观察→移动→对话→注入→因果→跳过→分支→生成→恢复) | 待派 | lint 提交后 | 六核心路由走通 |
+| D103 线上部署 / D104 视频 / D107 决策账本 + AI 案例 | 用户侧 | 最终 | README/视频/线上地址 |
+| Definition of Done 复核 | 任一 | 全部提交后 | 实施规划 §20 |
 
 ## 守则
 

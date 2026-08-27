@@ -125,20 +125,13 @@ export const mockApi: AiLabApi = {
  */
 export const realApi: AiLabApi = {
   async listTraces(worldId: string, options: TraceListOptions = {}): Promise<AiTrace[]> {
-    let traces: AiTrace[] = [];
-    if (worldId) {
-      if (options.agentId) {
-        traces = await serviceApi.aiTraces(worldId, options.agentId);
-      } else {
-        traces = await serviceApi.worldAgentTraces(worldId, { role: options.role, limit: options.limit ?? 30 });
-      }
-    } else {
-      const worlds = await serviceApi.worlds();
-      const settled = await Promise.allSettled(
-        worlds.map((world) => serviceApi.worldAgentTraces(world.id, { role: options.role, limit: options.limit ?? 30 })),
-      );
-      traces = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-    }
+    const traces = worldId
+      ? options.agentId
+        ? await serviceApi.aiTraces(worldId, options.agentId)
+        : await serviceApi.worldAgentTraces(worldId, { role: options.role, limit: options.limit ?? 30 })
+      : (await Promise.allSettled(
+          (await serviceApi.worlds()).map((world) => serviceApi.worldAgentTraces(world.id, { role: options.role, limit: options.limit ?? 30 })),
+        )).flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     return traces.filter((trace) =>
       (options.agentId === undefined || trace.agentId === options.agentId) &&
       (options.status === undefined || trace.status === options.status) &&
@@ -315,6 +308,8 @@ export function AiLabPage(props: AiLabPageProps) {
   }), [agentId, role, status, source]);
 
   useEffect(() => {
+    // load 内部同步置 loading;该模式是异步数据加载的标准用法。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load(worldId, currentOptions);
   }, [worldId, currentOptions, load]);
 

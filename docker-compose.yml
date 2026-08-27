@@ -13,7 +13,14 @@ services:
       DEMO_PASSWORD: ${DEMO_PASSWORD:-town1234}
       # 配置后 AI 决策与对话走真实模型;留空则全程 Mock
       AI_SIMULATION_API_KEY: ${AI_SIMULATION_API_KEY:-}
-      AI_SIMULATION_MODEL: ${AI_SIMULATION_MODEL:-}
+      AI_SIMULATION_BASE_URL: ${AI_SIMULATION_BASE_URL:-https://api.deepseek.com/v1}
+      AI_SIMULATION_MODEL: ${AI_SIMULATION_MODEL:-deepseek-chat}
+      AI_SIMULATION_API_STYLE: ${AI_SIMULATION_API_STYLE:-chat}
+      AI_SIMULATION_CHAT_PATH: ${AI_SIMULATION_CHAT_PATH:-/chat/completions}
+      AI_SIMULATION_TIMEOUT_MS: ${AI_SIMULATION_TIMEOUT_MS:-15000}
+      AI_IMAGE_API_KEY: ${AI_IMAGE_API_KEY:-}
+      AI_IMAGE_BASE_URL: ${AI_IMAGE_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3/images/generations}
+      AI_IMAGE_MODEL: ${AI_IMAGE_MODEL:-doubao-seedream-5-0-260128}
     volumes:
       - ai-town-data:/app/data
 volumes:

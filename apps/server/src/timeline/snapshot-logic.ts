@@ -182,7 +182,6 @@ export function buildSkipSchedule(
 
   if (!stoppedByEmergency && from < targetMinute) {
     steps.push({ fromMinute: from, toMinute: targetMinute, kind: "arrive", reason: "推进至目标时刻" });
-    from = targetMinute;
   }
 
   return {
