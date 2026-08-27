@@ -146,14 +146,9 @@ export class TownScene extends Phaser.Scene {
   private showWalk(marker: NpcMarker, base: "left" | "right" | "front" | "back"): void {
     if (!marker.spriteKey || !(marker.avatar as unknown as { anims?: unknown }).anims) return;
     const sprite = marker.avatar as unknown as Phaser.GameObjects.Sprite;
-    if (base === "left" || base === "right") {
-      sprite.anims.play(`${marker.spriteKey}-walk-left`, true);
-      sprite.setFlipX(base === "right");
-    } else if (base === "front") {
-      sprite.anims.play(`${marker.spriteKey}-walk-front`, true);
-    } else {
-      sprite.anims.play(`${marker.spriteKey}-walk-back`, true);
-    }
+    // 统一直播正面行走行：左右移动用镜像，上下不换行（消除侧身/转身帧带来的旋转感）
+    sprite.anims.play(`${marker.spriteKey}-walk-front`, true);
+    sprite.setFlipX(base === "right");
   }
 
   private createAvatar(id: string, clothingColor: string): { avatar: Phaser.GameObjects.GameObject; spriteKey: string | null } {
@@ -241,12 +236,10 @@ export class TownScene extends Phaser.Scene {
     const sprite = this.playerAvatar as unknown as Phaser.GameObjects.Sprite;
     const prefix = this.playerMarker.spriteKey;
     if (base === "left" || base === "right") {
-      sprite.anims.play(`${prefix}-walk-left`, true);
-      sprite.setFlipX(base === "right");
-    } else if (base === "front") {
       sprite.anims.play(`${prefix}-walk-front`, true);
+      sprite.setFlipX(base === "right");
     } else {
-      sprite.anims.play(`${prefix}-walk-back`, true);
+      sprite.anims.play(`${prefix}-walk-front`, true);
     }
   }
 
@@ -269,11 +262,9 @@ export class TownScene extends Phaser.Scene {
         }
         texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
         const prefix = `npc-${id}`;
-        if (!this.anims.exists(`${prefix}-walk-left`)) {
+        if (!this.anims.exists(`${prefix}-walk-front`)) {
           const frames = (start: number, end: number) => Array.from({ length: end - start + 1 }, (_, offset) => ({ key, frame: `${start + offset}` }));
-          this.anims.create({ key: `${prefix}-walk-left`, frames: frames(0, 5), frameRate: 7, repeat: -1 });
-          this.anims.create({ key: `${prefix}-walk-front`, frames: frames(6, 11), frameRate: 7, repeat: -1 });
-          this.anims.create({ key: `${prefix}-walk-back`, frames: frames(12, 17), frameRate: 7, repeat: -1 });
+          this.anims.create({ key: `${prefix}-walk-front`, frames: frames(6, 9), frameRate: 5, repeat: -1 });
           this.anims.create({ key: `${prefix}-idle-front`, frames: [{ key, frame: "18" }], frameRate: 1 });
         }
       } catch {
