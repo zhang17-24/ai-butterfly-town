@@ -1,5 +1,6 @@
-import type { Npc, TownEvent } from "@ai-town/shared";
-import type { TownRepository } from "../db/repository.js";
+import { randomUUID } from "node:crypto";
+import type { Npc, RealtimeMessage } from "@ai-town/shared";
+import type { PendingWorldEvent, TownRepository } from "../db/repository.js";
 import type { WorldHub } from "../realtime/world-hub.js";
 import { applyActionEffects, applyPassiveMinute, chooseMockAction } from "../domain/mock-decision.js";
 
@@ -35,7 +36,7 @@ export class SimulationService {
     if (!snapshot || snapshot.world.paused) return;
     const gameMinute = snapshot.world.gameMinute + 1;
     const version = snapshot.world.version + 1;
-    const pendingEvents: Omit<TownEvent, "id" | "createdAt">[] = [];
+    const pendingEvents: PendingWorldEvent[] = [];
 
     const updatedNpcs = snapshot.npcs.map((npc): Npc => {
       let state = applyPassiveMinute(npc.state);
@@ -52,11 +53,12 @@ export class SimulationService {
         };
         pendingEvents.push({
           worldId,
-          version,
           gameMinute,
           type: "npc.action_started",
           actorId: npc.profile.id,
           summary: `${npc.profile.name}${action.label}`,
+          source: "mock",
+          causeIds: [],
           payload: {
             action: action.label,
             reason: action.reason,
@@ -70,11 +72,16 @@ export class SimulationService {
       return { profile: npc.profile, state };
     });
 
-    const committedEvents = this.repository.commitTick(worldId, gameMinute, version, updatedNpcs, pendingEvents);
+    const committed = this.repository.commitTick(worldId, snapshot.world.version, gameMinute, updatedNpcs, pendingEvents);
+    if (!committed) return;
     this.hub.broadcast(worldId, {
+      eventId: randomUUID(),
+      worldId,
+      branchId: committed.world.activeBranchId,
+      version: committed.world.version,
+      emittedAt: new Date().toISOString(),
       type: "world.tick",
-      data: { worldId, gameMinute, version, npcs: updatedNpcs, events: committedEvents },
-    });
+      data: { worldId, gameMinute, version: committed.world.version, npcs: updatedNpcs, events: committed.events },
+    } satisfies RealtimeMessage);
   }
 }
-

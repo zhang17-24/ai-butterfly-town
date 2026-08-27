@@ -24,7 +24,18 @@ export const useWorldStore = create<WorldStore>((set) => ({
     if (message.type === "world.snapshot") {
       return { world: message.data.world, npcs: message.data.npcs, events: dedupeEvents(message.data.recentEvents) };
     }
-    if (message.type === "world.status") return { world: message.data };
+    if (message.type === "world.catchup") {
+      return {
+        world: message.data.state.world,
+        npcs: message.data.state.npcs,
+        events: dedupeEvents([...state.events, ...message.data.state.recentEvents, ...message.data.events]).slice(-40),
+      };
+    }
+    if (state.world && message.version <= state.world.version) return state;
+    if (message.type === "world.status") return {
+      world: message.data,
+      events: message.event ? dedupeEvents([...state.events, message.event]).slice(-40) : state.events,
+    };
     return {
       world: state.world ? {
         ...state.world,

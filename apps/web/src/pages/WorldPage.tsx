@@ -22,10 +22,18 @@ export function WorldPage() {
   const { worldId = "" } = useParams();
   const store = useWorldStore();
   const initial = useQuery({ queryKey: ["world", worldId], queryFn: () => api.worldState(worldId), enabled: !!worldId });
-  const pause = useMutation({ mutationFn: (paused: boolean) => api.setPaused(worldId, paused) });
+  const pause = useMutation({ mutationFn: (paused: boolean) => api.setPaused(worldId, paused, store.world?.version ?? 0) });
 
   useEffect(() => {
-    if (initial.data) store.applyMessage({ type: "world.snapshot", data: initial.data });
+    if (initial.data) store.applyMessage({
+      eventId: crypto.randomUUID(),
+      worldId: initial.data.world.id,
+      branchId: initial.data.world.activeBranchId,
+      version: initial.data.world.version,
+      emittedAt: new Date().toISOString(),
+      type: "world.snapshot",
+      data: initial.data,
+    });
   }, [initial.data]);
 
   useEffect(() => {
@@ -42,7 +50,9 @@ export function WorldPage() {
     let disposed = false;
     const connect = () => {
       if (disposed) return;
-      socket = new WebSocket(`${protocol}://${location.host}/ws?worldId=${encodeURIComponent(worldId)}`);
+      const afterVersion = useWorldStore.getState().world?.version;
+      const resume = afterVersion === undefined ? "" : `&afterVersion=${afterVersion}`;
+      socket = new WebSocket(`${protocol}://${location.host}/ws?worldId=${encodeURIComponent(worldId)}${resume}`);
       socket.onopen = () => store.setConnected(true);
       socket.onmessage = (event) => {
         const parsed = RealtimeMessageSchema.safeParse(JSON.parse(String(event.data)));

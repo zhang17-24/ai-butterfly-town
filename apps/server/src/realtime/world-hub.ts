@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server } from "node:http";
+import { randomUUID } from "node:crypto";
 import type { RealtimeMessage } from "@ai-town/shared";
 import { WebSocket, WebSocketServer } from "ws";
 import { parseCookieHeader, SESSION_COOKIE, verifySessionToken } from "../auth/session.js";
@@ -47,7 +48,31 @@ export class WorldHub {
     this.server.handleUpgrade(request, socket, head, (ws) => {
       this.addClient(worldId, ws);
       const state = this.repository.getWorldState(userId, worldId);
-      if (state) ws.send(JSON.stringify({ type: "world.snapshot", data: state } satisfies RealtimeMessage));
+      if (!state) return;
+      const afterVersionText = url.searchParams.get("afterVersion");
+      const afterVersion = afterVersionText === null ? null : Number(afterVersionText);
+      const canCatchUp = afterVersion !== null
+        && Number.isInteger(afterVersion)
+        && afterVersion >= 0
+        && afterVersion <= state.world.version
+        && state.world.version - afterVersion <= 100;
+      const envelope = {
+        eventId: randomUUID(),
+        worldId,
+        branchId: state.world.activeBranchId,
+        version: state.world.version,
+        emittedAt: new Date().toISOString(),
+      };
+      const message: RealtimeMessage = canCatchUp ? {
+        ...envelope,
+        type: "world.catchup",
+        data: {
+          fromVersion: afterVersion,
+          state,
+          events: this.repository.listEventsAfter(worldId, state.world.activeBranchId, afterVersion, 200),
+        },
+      } : { ...envelope, type: "world.snapshot", data: state };
+      ws.send(JSON.stringify(message));
     });
   }
 
@@ -61,4 +86,3 @@ export class WorldHub {
     });
   }
 }
-

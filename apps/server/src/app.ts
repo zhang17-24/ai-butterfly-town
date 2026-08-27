@@ -1,11 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import type { RealtimeMessage } from "@ai-town/shared";
 import { openDatabase } from "./db/database.js";
 import { TownRepository } from "./db/repository.js";
 import { createSessionToken, SESSION_COOKIE, verifySessionToken } from "./auth/session.js";
@@ -20,6 +22,11 @@ declare module "fastify" {
 }
 
 const LoginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
+const PauseSchema = z.object({
+  paused: z.boolean().default(true),
+  expectedVersion: z.number().int().nonnegative().optional(),
+  idempotencyKey: z.string().min(8).max(128).optional(),
+});
 
 export async function buildApp(overrides: Partial<AppConfig> = {}) {
   const config = loadConfig(overrides);
@@ -80,11 +87,40 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     const state = repository.getWorldState(request.userId!, request.params.worldId);
     return state ?? reply.code(404).send({ error: "世界不存在" });
   });
-  app.post<{ Params: { worldId: string }; Body: { paused?: boolean } }>("/api/worlds/:worldId/pause", { preHandler: requireUser }, async (request, reply) => {
-    const world = repository.setPaused(request.userId!, request.params.worldId, request.body?.paused ?? true);
-    if (!world) return reply.code(404).send({ error: "世界不存在" });
-    hub.broadcast(world.id, { type: "world.status", data: world });
-    return world;
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/pause", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = PauseSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_COMMAND", message: "暂停命令格式不正确", recoverable: true, details: {} } });
+    const result = repository.executePauseCommand({ userId: request.userId!, worldId: request.params.worldId, ...parsed.data });
+    if (result.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    if (result.kind === "idempotency_conflict") return reply.code(409).send({
+      error: {
+        code: "IDEMPOTENCY_KEY_REUSED",
+        message: "同一个请求标识不能用于不同命令",
+        recoverable: true,
+        details: {},
+      },
+    });
+    if (result.kind === "version_conflict") return reply.code(409).send({
+      error: {
+        code: "WORLD_VERSION_CONFLICT",
+        message: "世界状态已经变化，请刷新后重试",
+        recoverable: true,
+        details: { currentVersion: result.currentVersion },
+      },
+    });
+    if (!result.replayed) {
+      hub.broadcast(result.world.id, {
+        eventId: result.event?.id ?? randomUUID(),
+        worldId: result.world.id,
+        branchId: result.world.activeBranchId,
+        version: result.world.version,
+        emittedAt: new Date().toISOString(),
+        type: "world.status",
+        data: result.world,
+        event: result.event,
+      } satisfies RealtimeMessage);
+    }
+    return result.world;
   });
 
   if (config.serveWeb) {
