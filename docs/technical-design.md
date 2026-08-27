@@ -2,7 +2,7 @@
 
 > 文档状态：Draft for review  
 > 需求基线：**Living Requirement Map v1.3（D01–D124）**  
-> 当前实现基线：Day 1 + M2 + M3 真实 AI 决策
+> 当前实现基线：Day 1 + M2 + M3 + 视觉生成管线切片
 > 适用范围：腾讯 AI 引擎部 AI 全栈工程师面试项目
 
 ## 1. 文档目的与范围
@@ -240,6 +240,8 @@ sequenceDiagram
 6. `ASSEMBLE`：保存世界包并创建初始快照。
 
 每阶段记录 `task_id/world_version/stage/input_hash/result_ref`。失败可重试一次，之后使用预生成或程序化资产；视觉失败不能阻止结构世界进入可玩状态。
+
+视觉生成对 WorldX 的借鉴、差异和自有提示策略见 [WorldX 生成管线审阅与栖溪镇改造方案](./worldx-generation-study.md)。核心差异是：栖溪镇始终由 Blueprint 掌握碰撞与入口的几何权威，VISION 只能验收或要求重试，不能从图片反向覆盖玩法几何。
 
 ## 7. 数据与持久化设计
 

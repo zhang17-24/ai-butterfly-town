@@ -17,7 +17,7 @@ export function TownCanvas() {
       transparent: false,
       scene,
       scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-      render: { antialias: true },
+      render: { antialias: false, pixelArt: true },
     });
     const unsubscribe = useWorldStore.subscribe((state) => scene.applyNpcs(state.npcs));
     game.events.once(Phaser.Core.Events.READY, () => scene.applyNpcs(useWorldStore.getState().npcs));
@@ -29,4 +29,3 @@ export function TownCanvas() {
 
   return <div className="town-canvas" ref={hostRef} aria-label="栖溪镇实时地图" />;
 }
-

@@ -1,6 +1,6 @@
 # AI 蝴蝶小镇
 
-一个持续自主运行的 Web AI 小镇。Day 1、M2 和 M3 已经贯通：账号登录、内置栖溪镇、5 名完整居民、真实 AI/Mock 自主决策、结构化校验与修复、可解释 Trace、版本化世界命令、默认时间线分支、初始快照、WebSocket 恢复，以及 SQLite 保存恢复。
+一个持续自主运行的 Web AI 小镇。Day 1、M2 和 M3 已经贯通，并加入首个视觉生成纵向切片：账号登录、内置栖溪镇、5 名完整居民、真实 AI/Mock 自主决策、结构化校验与修复、可解释 Trace、原创像素地图、程序化像素居民、版本化世界命令、WebSocket 恢复，以及 SQLite 保存恢复。
 
 项目需求以 **Living Requirement Map v1.3（D01–D124）** 为基线。v1.4 只用于记录实现进度，不扩大本轮产品范围。
 
@@ -14,6 +14,7 @@
 - 刷新页面后从 SQLite 恢复世界时间、居民状态和事件流；
 - 删除全部 AI Key 仍可完整体验（当前默认就是 Mock 模式）。
 - 配置 SIMULATION AI 后查看真实模型选择；模型超时、坏输出或调用预算耗尽时自动降级。
+- 体验原创的栖溪镇像素地图；IMAGE/VISION 未配置时自动使用预生成地图和程序化居民。
 
 M2 提供旧库迁移、版本冲突、幂等、事务回滚和断线恢复。M3 在此基础上加入 OpenAI-compatible Responses/Chat Provider、受限候选选择、一次校验修复、两次请求尝试、每 Tick 调用预算和与世界状态同事务保存的 AI Trace。
 
@@ -48,6 +49,7 @@ pnpm verify
 
 - [技术方案](./docs/technical-design.md)：架构、领域模型、数据/API、AI/Mock、持久化、测试与部署取舍；
 - [实现规划](./docs/implementation-plan.md)：Day 1 审计、Day 2/3 里程碑、验收矩阵、风险与裁剪顺序。
+- [WorldX 生成研究](./docs/worldx-generation-study.md)：审阅范围、可借鉴机制、自有提示词与“蓝图权威”差异。
 
 两份文档会明确区分“已实现、下一步实现、只预留接口”。M3 已完成；根据最新产品决定，下一步先吸收 WorldX 的地图/角色生成经验，推进栖溪镇自己的视觉生成管线。
 

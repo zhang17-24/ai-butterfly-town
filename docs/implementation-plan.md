@@ -3,7 +3,7 @@
 > 规划状态：Draft for review  
 > 需求基线：**Living Requirement Map v1.3（D01–D124）**  
 > 执行原则：核心纵向切片优先，内置世界与动态生成双轨交付  
-> 当前节点：M3 已完成；按最新决定优先推进视觉生成管线
+> 当前节点：M3 已完成；WorldX 审阅与视觉生成纵向切片已落地
 
 ## 1. 规划目标
 
@@ -246,8 +246,11 @@ P0 是两级时间线/因果链和可见性；复杂图布局、置信度编辑�
 
 ### P1 任务
 
-- IMAGE Provider 真实接口、缓存和资产哈希；
-- VISION Provider 审查视觉与 Blueprint 一致性；
+- [x] IMAGE/VISION Provider 契约、视觉审查 Schema 与资产哈希字段；
+- [x] 生成、审查、反馈重试一次、预生成/程序化降级编排；
+- [x] 原创栖溪镇预生成地图与程序化像素居民接入 Phaser；
+- [ ] IMAGE Provider 真实 HTTP 接口与缓存；
+- [ ] VISION Provider 真实 HTTP 接口并审查视觉与 Blueprint 一致性；
 - 审查失败重试一次，再回退程序化资产；
 - 风格规范在世界创建后锁定；
 - 路径自动测试所有入口和关键地点。

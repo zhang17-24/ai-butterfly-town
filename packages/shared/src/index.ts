@@ -5,6 +5,94 @@ export const PositionSchema = z.object({
   y: z.number(),
 });
 
+export const PixelStyleSpecSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  projection: z.literal("top_down_90"),
+  pixelScale: z.number().int().min(1).max(8),
+  palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(4).max(16),
+  lighting: z.string().min(1),
+  buildingLanguage: z.string().min(1),
+  characterLanguage: z.string().min(1),
+  locked: z.literal(true),
+});
+
+export const BlueprintLocationSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(["building", "plaza", "outdoor", "water"]),
+  bounds: z.object({
+    x: z.number().nonnegative(),
+    y: z.number().nonnegative(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+  entrances: z.array(PositionSchema),
+  capabilities: z.array(z.string()),
+});
+
+export const BlueprintPathSchema = z.object({
+  id: z.string().min(1),
+  width: z.number().positive(),
+  points: z.array(PositionSchema).min(2),
+});
+
+export const WorldBlueprintSchema = z.object({
+  schemaVersion: z.literal(1),
+  worldId: z.string().min(1),
+  canvas: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    tileSize: z.number().int().positive(),
+  }),
+  locations: z.array(BlueprintLocationSchema).min(2),
+  paths: z.array(BlueprintPathSchema).min(1),
+  spawnPoints: z.array(z.object({ id: z.string(), position: PositionSchema })).min(1),
+});
+
+export const VisualReviewSchema = z.object({
+  verdict: z.enum(["pass", "retry", "fallback"]),
+  score: z.number().min(0).max(100),
+  issueCodes: z.array(z.enum([
+    "PROJECTION_DRIFT",
+    "LAYOUT_MISMATCH",
+    "BLOCKED_ENTRANCE",
+    "DISCONNECTED_PATH",
+    "STYLE_DRIFT",
+    "TEXT_OR_PEOPLE_PRESENT",
+    "FRAME_LAYOUT_MISMATCH",
+    "BACKGROUND_NOT_TRANSPARENT",
+    "IDENTITY_DRIFT",
+    "CLIPPED_SPRITE",
+  ])),
+  feedback: z.array(z.string()),
+});
+
+export const MapAssetManifestSchema = z.object({
+  worldId: z.string(),
+  blueprintVersion: z.number().int().positive(),
+  blueprintHash: z.string(),
+  styleSpecId: z.string(),
+  imageUrl: z.string(),
+  source: z.enum(["ai", "prebuilt", "procedural"]),
+  review: VisualReviewSchema,
+});
+
+export const CharacterVisualSpecSchema = z.object({
+  npcId: z.string().min(1),
+  appearance: z.string().min(1),
+  columns: z.literal(6),
+  rows: z.literal(5),
+  rowSemantics: z.tuple([
+    z.literal("walk_left"),
+    z.literal("walk_front"),
+    z.literal("walk_back"),
+    z.literal("idle_front"),
+    z.literal("expressions"),
+  ]),
+  transparentBackground: z.literal(true),
+});
+
 export const AppErrorSchema = z.object({
   error: z.object({
     code: z.string(),
@@ -204,6 +292,13 @@ export const RealtimeMessageSchema = z.discriminatedUnion("type", [
 ]);
 
 export type Position = z.infer<typeof PositionSchema>;
+export type PixelStyleSpec = z.infer<typeof PixelStyleSpecSchema>;
+export type BlueprintLocation = z.infer<typeof BlueprintLocationSchema>;
+export type BlueprintPath = z.infer<typeof BlueprintPathSchema>;
+export type WorldBlueprint = z.infer<typeof WorldBlueprintSchema>;
+export type VisualReview = z.infer<typeof VisualReviewSchema>;
+export type MapAssetManifest = z.infer<typeof MapAssetManifestSchema>;
+export type CharacterVisualSpec = z.infer<typeof CharacterVisualSpecSchema>;
 export type AppError = z.infer<typeof AppErrorSchema>;
 export type ActionIntent = z.infer<typeof ActionIntentSchema>;
 export type ActionDefinition = z.infer<typeof ActionDefinitionSchema>;

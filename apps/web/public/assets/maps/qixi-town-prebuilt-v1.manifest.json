@@ -1,0 +1,19 @@
+{
+  "assetId": "qixi-town-prebuilt-v1",
+  "createdAt": "2026-08-28",
+  "source": "built-in-image-generation",
+  "worldId": "world_qixi_town",
+  "styleSpecId": "qixi-riverside-pixel-v1",
+  "purpose": "MVP prebuilt fallback and visual-pipeline reference asset",
+  "promptSummary": "Original near-90-degree top-down pixel-art map of a modern Chinese riverside neighborhood with cafe, clinic, grocery, community center, apartments, bridge and weekend-market plaza; no people, text, UI or watermark.",
+  "manualReview": {
+    "status": "pass-for-demo",
+    "checks": [
+      "five functional zones are visually distinct",
+      "river, bridge and plaza are readable",
+      "no people, labels or UI are embedded in the bitmap",
+      "all runtime labels and characters remain separate Phaser layers"
+    ],
+    "knownLimitation": "This prebuilt image is manually registered to the demo blueprint. Dynamically generated worlds will use a blueprint control image and automated VISION review."
+  }
+}

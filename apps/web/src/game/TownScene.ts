@@ -2,15 +2,19 @@ import Phaser from "phaser";
 import type { Npc } from "@ai-town/shared";
 import { gameEvents } from "./event-bus";
 
-const buildings = [
-  { id: "cafe", name: "栖岸咖啡馆", x: 220, y: 110, w: 170, h: 120, color: 0xd99c72 },
-  { id: "clinic", name: "安宁诊所", x: 610, y: 98, w: 150, h: 120, color: 0x91b6c9 },
-  { id: "grocery", name: "老何杂货铺", x: 92, y: 372, w: 170, h: 120, color: 0xc7a66f },
-  { id: "community", name: "社区中心", x: 650, y: 365, w: 160, h: 130, color: 0xa798bd },
-  { id: "apartment", name: "栖溪公寓", x: 500, y: 500, w: 210, h: 86, color: 0xb68e86 },
+const placeLabels = [
+  { name: "栖岸咖啡馆", x: 132, y: 34 },
+  { name: "安宁诊所", x: 785, y: 28 },
+  { name: "老何杂货铺", x: 100, y: 322 },
+  { name: "社区中心", x: 785, y: 232 },
+  { name: "栖溪公寓", x: 748, y: 466 },
+  { name: "河岸市集", x: 566, y: 192 },
 ];
 
-type NpcMarker = Phaser.GameObjects.Container & { bodyCircle: Phaser.GameObjects.Arc; actionText: Phaser.GameObjects.Text };
+type NpcMarker = Phaser.GameObjects.Container & {
+  avatar: Phaser.GameObjects.Container;
+  actionText: Phaser.GameObjects.Text;
+};
 
 export class TownScene extends Phaser.Scene {
   private markers = new Map<string, NpcMarker>();
@@ -19,33 +23,27 @@ export class TownScene extends Phaser.Scene {
     super("TownScene");
   }
 
+  preload(): void {
+    this.load.image("qixi-town-map", "/assets/maps/qixi-town-prebuilt-v1.png");
+  }
+
   create(): void {
-    this.cameras.main.setBackgroundColor("#bfd9c2");
-    this.add.rectangle(450, 310, 900, 620, 0xbfd9c2);
-    this.add.rectangle(454, 315, 268, 620, 0x93b7c4, 0.9).setAngle(-7);
-    this.add.rectangle(447, 315, 105, 620, 0xa9cbd4, 0.85).setAngle(-7);
-    this.add.rectangle(450, 338, 900, 86, 0xd8d2b5);
-    this.add.rectangle(452, 338, 900, 54, 0xc3bda4);
-    this.add.text(398, 300, "滨 河 步 道", { color: "#526e65", fontSize: "13px", fontFamily: "sans-serif" }).setRotation(-0.12);
-    this.add.rectangle(460, 335, 78, 138, 0xb7835f).setStrokeStyle(4, 0x8a6048);
-    this.add.text(430, 329, "栖溪桥", { color: "#fff5e8", fontSize: "12px", fontFamily: "sans-serif" });
-    this.add.ellipse(460, 420, 230, 112, 0x91b77b, 0.95);
-    this.add.text(402, 404, "河岸广场", { color: "#2f5b43", fontSize: "16px", fontStyle: "bold", fontFamily: "sans-serif" });
+    this.cameras.main.setBackgroundColor("#173e42");
+    this.textures.get("qixi-town-map").setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.add.image(450, 310, "qixi-town-map").setDisplaySize(900, 620);
+    this.add.rectangle(450, 310, 900, 620, 0x102d2c, 0.04);
 
-    for (const building of buildings) {
-      this.add.rectangle(building.x + building.w / 2, building.y + building.h / 2, building.w, building.h, building.color)
-        .setStrokeStyle(3, 0xffffff, 0.55);
-      this.add.rectangle(building.x + building.w / 2, building.y + 8, building.w + 10, 20, 0x6d4f43, 0.9);
-      this.add.text(building.x + 12, building.y + 31, building.name, {
-        color: "#23372d", fontSize: "15px", fontStyle: "bold", fontFamily: "sans-serif",
-      });
-    }
-
-    for (let i = 0; i < 22; i++) {
-      const x = 24 + (i * 83) % 860;
-      const y = i % 2 === 0 ? 28 + (i % 5) * 18 : 572 - (i % 4) * 16;
-      this.add.circle(x, y, 12, 0x638d64, 0.9);
-      this.add.rectangle(x, y + 17, 4, 17, 0x765c45);
+    for (const place of placeLabels) {
+      this.add.text(place.x, place.y, place.name, {
+        color: "#fffaf0",
+        backgroundColor: "#173b36c9",
+        padding: { x: 7, y: 4 },
+        fontSize: "12px",
+        fontStyle: "bold",
+        fontFamily: "sans-serif",
+        stroke: "#173b36",
+        strokeThickness: 1,
+      }).setOrigin(0.5).setDepth(5);
     }
   }
 
@@ -55,24 +53,21 @@ export class TownScene extends Phaser.Scene {
       let marker = this.markers.get(npc.profile.id);
       if (!marker) {
         const color = Phaser.Display.Color.HexStringToColor(npc.profile.color).color;
-        const shadow = this.add.ellipse(0, 16, 32, 12, 0x000000, 0.18);
-        const bodyCircle = this.add.circle(0, 0, 17, color).setStrokeStyle(3, 0xffffff, 0.95);
-        const initials = this.add.text(0, -1, npc.profile.name.slice(-1), {
-          color: "#ffffff", fontSize: "14px", fontStyle: "bold", fontFamily: "sans-serif",
-        }).setOrigin(0.5);
-        const name = this.add.text(0, -30, npc.profile.name, {
+        const shadow = this.add.ellipse(0, 12, 25, 8, 0x000000, 0.32);
+        const avatar = this.createPixelAvatar(npc.profile.id, color);
+        const name = this.add.text(0, -36, npc.profile.name, {
           color: "#173024", backgroundColor: "#f5fff2dd", padding: { x: 6, y: 3 }, fontSize: "12px", fontFamily: "sans-serif",
         }).setOrigin(0.5);
-        const actionText = this.add.text(0, 28, npc.state.currentAction, {
+        const actionText = this.add.text(0, 23, npc.state.currentAction, {
           color: "#344a3f", backgroundColor: "#ffffffcc", padding: { x: 5, y: 2 }, fontSize: "10px", fontFamily: "sans-serif",
         }).setOrigin(0.5, 0);
-        marker = this.add.container(npc.state.position.x, npc.state.position.y, [shadow, bodyCircle, initials, name, actionText]) as NpcMarker;
-        marker.bodyCircle = bodyCircle;
+        marker = this.add.container(npc.state.position.x, npc.state.position.y, [shadow, avatar, name, actionText]) as NpcMarker;
+        marker.avatar = avatar;
         marker.actionText = actionText;
-        marker.setSize(54, 72).setInteractive({ useHandCursor: true });
+        marker.setSize(54, 76).setDepth(20).setInteractive({ useHandCursor: true });
         marker.on("pointerdown", () => gameEvents.dispatchEvent(new CustomEvent("npc:selected", { detail: npc.profile.id })));
-        marker.on("pointerover", () => bodyCircle.setScale(1.12));
-        marker.on("pointerout", () => bodyCircle.setScale(1));
+        marker.on("pointerover", () => avatar.setScale(1.14));
+        marker.on("pointerout", () => avatar.setScale(1));
         this.markers.set(npc.profile.id, marker);
       }
       marker.actionText.setText(npc.state.currentAction);
@@ -82,5 +77,42 @@ export class TownScene extends Phaser.Scene {
       }
     }
   }
-}
 
+  private createPixelAvatar(npcId: string, clothingColor: number): Phaser.GameObjects.Container {
+    const dark = Phaser.Display.Color.ValueToColor(clothingColor).darken(30).color;
+    const palettes: Record<string, { hair: number; skin: number; accent: number }> = {
+      npc_lin_xia: { hair: 0x3f2722, skin: 0xf2bd91, accent: 0xf6d36a },
+      npc_shen_zhiheng: { hair: 0x27313a, skin: 0xe8b88f, accent: 0xeef6f2 },
+      npc_he_jianguo: { hair: 0x4a4742, skin: 0xdba679, accent: 0xe3be63 },
+      npc_zhou_fang: { hair: 0x292b25, skin: 0xe7ad7e, accent: 0xe86943 },
+      npc_tang_yucheng: { hair: 0x3a253f, skin: 0xefb98d, accent: 0xf0cc72 },
+    };
+    const palette = palettes[npcId] ?? { hair: 0x352a28, skin: 0xe8b184, accent: 0xf2ce72 };
+    const parts: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(-6, 10, 7, 12, dark),
+      this.add.rectangle(6, 10, 7, 12, dark),
+      this.add.rectangle(-6, 17, 8, 4, 0x342f35),
+      this.add.rectangle(6, 17, 8, 4, 0x342f35),
+      this.add.rectangle(0, 1, 22, 20, clothingColor),
+      this.add.rectangle(-13, 1, 4, 14, palette.skin),
+      this.add.rectangle(13, 1, 4, 14, palette.skin),
+      this.add.rectangle(0, -13, 18, 18, palette.skin),
+      this.add.rectangle(0, -21, 20, 6, palette.hair),
+      this.add.rectangle(-9, -15, 3, 11, palette.hair),
+      this.add.rectangle(9, -16, 3, 8, palette.hair),
+      this.add.rectangle(-4, -13, 2, 2, 0x302a2a),
+      this.add.rectangle(4, -13, 2, 2, 0x302a2a),
+      this.add.rectangle(0, 0, 4, 12, palette.accent),
+    ];
+    if (npcId === "npc_shen_zhiheng") {
+      parts.push(this.add.rectangle(-7, 1, 5, 18, 0xeaf3ef), this.add.rectangle(7, 1, 5, 18, 0xeaf3ef));
+    }
+    if (npcId === "npc_zhou_fang") {
+      parts.push(this.add.rectangle(11, 5, 8, 12, 0xc85a3c), this.add.rectangle(6, -2, 3, 22, 0x523e36).setAngle(-24));
+    }
+    if (npcId === "npc_tang_yucheng") {
+      parts.push(this.add.rectangle(11, 3, 9, 7, 0x3c4148), this.add.rectangle(11, 3, 3, 3, 0x9bd2d0));
+    }
+    return this.add.container(0, -5, parts).setScale(1.15);
+  }
+}
