@@ -61,7 +61,10 @@ pnpm verify
 docker compose up --build
 ```
 
-> 已知风险：生产运行时 `packages/shared` 以 `exports: "./src/index.ts"` 指向源码，`node apps/server/dist/index.js` 可能无法解析 `.ts` 源码。CI 只做 `tsc` 编译不受影响；容器化真正启动前需将该包改为 `dist` 导出（见 docs/remaining-requirements.md D102）。
+> 已修复(D102):`packages/shared` 以 `dist`+类型导出,`node apps/server/dist/index.js` 单命令可跑(本地已以 `docker build` + 容器内登录/世界/首页冒烟验证)。
+- `CI` 现已含 `pnpm lint`(eslint flat,typescript+react-hooks;0 error)。
+- 一键自检:`pnpm verify`(lint+typecheck+test+build)、`pnpm test:e2e`(HTTP 冒烟 10 步)、`pnpm test:ai`(真实 DeepSeek 决策/对话 + Seedream 生图契约,已 3/3)。
+- 部署与演示:**见 [docs/delivery.md](docs/delivery.md)** —— Render Blueprint 一键部署配置样例、面试官动线与 3–5 分钟录制脚本。密钥只放 `apps/server/.env`(gitignore),不留仓库。
 
 ## 设计与实现规划
 
