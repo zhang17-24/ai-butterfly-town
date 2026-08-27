@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
-import type { AiTrace, Npc, NpcProfile, NpcState, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
-import { AiTraceSchema, NpcProfileSchema, NpcStateSchema } from "@ai-town/shared";
+import type { AiTrace, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { aiTraces, commandReceipts, events, npcs, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, events, npcs, players, snapshots, users, worldBranches, worlds } from "./schema.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
+import { qixiBlueprint } from "../generation/qixi-blueprint.js";
+import { createNavigationGrid, findPath } from "../navigation/a-star.js";
 
 export const eventSourceValues = ["system", "player", "ai", "mock"] as const;
 type EventSource = (typeof eventSourceValues)[number];
@@ -17,6 +19,13 @@ export type PendingWorldEvent = Omit<TownEvent, "id" | "branchId" | "version" | 
 export type PauseCommandResult =
   | { kind: "ok"; world: WorldSummary; event: TownEvent | null; replayed: boolean }
   | { kind: "not_found" }
+  | { kind: "idempotency_conflict" }
+  | { kind: "version_conflict"; currentVersion: number };
+
+export type MovePlayerCommandResult =
+  | { kind: "ok"; result: PlayerMoveResult }
+  | { kind: "not_found" }
+  | { kind: "unreachable" }
   | { kind: "idempotency_conflict" }
   | { kind: "version_conflict"; currentVersion: number };
 
@@ -63,6 +72,14 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
         updatedAt: now,
       }).onConflictDoNothing().run();
     }
+    this.handle.db.insert(players).values({
+      id: `player_${DEMO_USER_ID}_${demoWorld.id}`,
+      worldId: demoWorld.id,
+      userId: DEMO_USER_ID,
+      name: "你",
+      positionJson: JSON.stringify(qixiBlueprint.spawnPoints.find((item) => item.id === "player")?.position ?? { x: 520, y: 350 }),
+      updatedAt: now,
+    }).onConflictDoNothing().run();
     for (const world of this.handle.db.select({ id: worlds.id }).from(worlds).all()) this.ensureWorldFoundation(world.id);
   }
 
@@ -96,6 +113,8 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     if (!world) return null;
     const branchId = world.activeBranchId ?? this.mainBranchId(world.id);
     const npcRows = this.handle.db.select().from(npcs).where(eq(npcs.worldId, worldId)).all();
+    const player = this.getPlayer(userId, worldId);
+    if (!player) return null;
     const eventRows = this.handle.db.select().from(events).where(and(eq(events.worldId, worldId), eq(events.branchId, branchId))).orderBy(desc(events.version)).limit(24).all();
     return {
       world: {
@@ -108,6 +127,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
         activeBranchId: branchId,
         npcCount: npcRows.length,
       },
+      player,
       npcs: npcRows.map((row) => ({
         profile: NpcProfileSchema.parse(JSON.parse(row.profileJson)) as NpcProfile,
         state: NpcStateSchema.parse(JSON.parse(row.stateJson)) as NpcState,
@@ -255,6 +275,46 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     })();
   }
 
+  executeMovePlayerCommand(input: { userId: string; worldId: string; target: Position; expectedVersion: number; idempotencyKey: string }): MovePlayerCommandResult {
+    return this.handle.sqlite.transaction(() => {
+      const current = this.handle.db.select().from(worlds).where(and(eq(worlds.id, input.worldId), eq(worlds.userId, input.userId))).get();
+      if (!current) return { kind: "not_found" } as const;
+      const receipt = this.handle.db.select().from(commandReceipts).where(eq(commandReceipts.idempotencyKey, input.idempotencyKey)).get();
+      if (receipt) {
+        if (receipt.worldId !== input.worldId || receipt.commandType !== "player.move") return { kind: "idempotency_conflict" } as const;
+        return { kind: "ok", result: { ...(JSON.parse(receipt.responseJson) as PlayerMoveResult), replayed: true } } as const;
+      }
+      if (current.version !== input.expectedVersion) return { kind: "version_conflict", currentVersion: current.version } as const;
+      const playerRow = this.handle.db.select().from(players).where(and(eq(players.worldId, input.worldId), eq(players.userId, input.userId))).get();
+      if (!playerRow) return { kind: "not_found" } as const;
+      const player = this.toPlayer(playerRow);
+      const path = findPath(createNavigationGrid(qixiBlueprint), player.position, input.target);
+      if (!path) return { kind: "unreachable" } as const;
+
+      const now = new Date().toISOString();
+      const version = current.version + 1;
+      const branchId = current.activeBranchId ?? this.mainBranchId(current.id);
+      const movedPlayer: Player = { ...player, position: input.target };
+      const event: TownEvent = {
+        id: randomUUID(), worldId: current.id, branchId, version, gameMinute: current.gameMinute,
+        type: "player.moved", actorId: player.id, summary: "你移动到了新的位置", source: "player",
+        causeIds: [], schemaVersion: 1, payload: { from: player.position, to: input.target, path }, createdAt: now,
+      };
+      this.handle.db.update(players).set({ positionJson: JSON.stringify(input.target), updatedAt: now }).where(eq(players.id, player.id)).run();
+      this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now }).where(eq(worlds.id, current.id)).run();
+      this.insertEvent(event);
+      this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, current.id)).all().length;
+      const world = this.toWorldSummary({ ...current, version, activeBranchId: branchId }, npcCount);
+      const result: PlayerMoveResult = { player: movedPlayer, path, world, event, replayed: false };
+      this.handle.db.insert(commandReceipts).values({
+        idempotencyKey: input.idempotencyKey, worldId: current.id, commandType: "player.move",
+        baseVersion: input.expectedVersion, committedVersion: version, responseJson: JSON.stringify(result), createdAt: now,
+      }).run();
+      return { kind: "ok", result } as const;
+    })();
+  }
+
   listEventsAfter(worldId: string, branchId: string, afterVersion: number, limit: number): TownEvent[] {
     return this.handle.db.select().from(events).where(and(
       eq(events.worldId, worldId),
@@ -274,6 +334,15 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       eq(aiTraces.agentId, agentId),
     )).orderBy(desc(aiTraces.createdAt)).limit(Math.max(1, Math.min(50, limit))).all()
       .map((row) => AiTraceSchema.parse(JSON.parse(row.traceJson)));
+  }
+
+  private getPlayer(userId: string, worldId: string): Player | null {
+    const row = this.handle.db.select().from(players).where(and(eq(players.worldId, worldId), eq(players.userId, userId))).get();
+    return row ? this.toPlayer(row) : null;
+  }
+
+  private toPlayer(row: typeof players.$inferSelect): Player {
+    return PlayerSchema.parse({ id: row.id, userId: row.userId, worldId: row.worldId, name: row.name, position: JSON.parse(row.positionJson) });
   }
 
   private toEvent(row: typeof events.$inferSelect): TownEvent {
@@ -316,6 +385,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       const npcRows = this.handle.db.select().from(npcs).where(eq(npcs.worldId, worldId)).all();
       const state = {
         world: this.toWorldSummary({ ...world, activeBranchId: branchId }, npcRows.length),
+        player: this.getPlayer(world.userId, worldId),
         npcs: npcRows.map((row) => ({ profile: JSON.parse(row.profileJson), state: JSON.parse(row.stateJson) })),
       };
       const stateJson = JSON.stringify(state);

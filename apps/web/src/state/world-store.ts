@@ -1,32 +1,44 @@
 import { create } from "zustand";
-import type { Npc, RealtimeMessage, TownEvent, WorldSummary } from "@ai-town/shared";
+import type { Npc, Player, PlayerMoveResult, Position, RealtimeMessage, TownEvent, WorldSummary } from "@ai-town/shared";
 
 interface WorldStore {
   world: WorldSummary | null;
   npcs: Npc[];
+  player: Player | null;
+  playerPath: Position[];
   events: TownEvent[];
   connected: boolean;
   selectedNpcId: string | null;
   setConnected(connected: boolean): void;
   setSelectedNpc(id: string | null): void;
+  applyPlayerMove(result: PlayerMoveResult): void;
   applyMessage(message: RealtimeMessage): void;
 }
 
 export const useWorldStore = create<WorldStore>((set) => ({
   world: null,
   npcs: [],
+  player: null,
+  playerPath: [],
   events: [],
   connected: false,
   selectedNpcId: null,
   setConnected: (connected) => set({ connected }),
   setSelectedNpc: (selectedNpcId) => set({ selectedNpcId }),
+  applyPlayerMove: (result) => set((state) => ({
+    player: result.player,
+    playerPath: result.path,
+    world: result.world,
+    events: dedupeEvents([...state.events, result.event]).slice(-40),
+  })),
   applyMessage: (message) => set((state) => {
     if (message.type === "world.snapshot") {
-      return { world: message.data.world, npcs: message.data.npcs, events: dedupeEvents(message.data.recentEvents) };
+      return { world: message.data.world, player: message.data.player, playerPath: [], npcs: message.data.npcs, events: dedupeEvents(message.data.recentEvents) };
     }
     if (message.type === "world.catchup") {
       return {
         world: message.data.state.world,
+        player: message.data.state.player,
         npcs: message.data.state.npcs,
         events: dedupeEvents([...state.events, ...message.data.state.recentEvents, ...message.data.events]).slice(-40),
       };

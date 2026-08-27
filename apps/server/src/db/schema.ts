@@ -36,6 +36,15 @@ export const npcs = sqliteTable("npcs", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const players = sqliteTable("players", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id").notNull(),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  positionJson: text("position_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const events = sqliteTable("events", {
   id: text("id").primaryKey(),
   worldId: text("world_id").notNull(),

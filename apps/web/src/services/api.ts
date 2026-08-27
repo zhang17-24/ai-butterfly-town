@@ -1,4 +1,4 @@
-import { AiTraceSchema, WorldStateSchema, WorldSummarySchema, type AiTrace, type WorldState, type WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, PlayerMoveResultSchema, WorldStateSchema, WorldSummarySchema, type AiTrace, type PlayerMoveResult, type Position, type WorldState, type WorldSummary } from "@ai-town/shared";
 
 class ApiRequestError extends Error {
   constructor(message: string, readonly code: string | undefined, readonly details: Record<string, unknown> | undefined) {
@@ -47,6 +47,20 @@ export const api = {
       if (!(error instanceof ApiRequestError) || error.code !== "WORLD_VERSION_CONFLICT") throw error;
       const latest = WorldStateSchema.parse(await request<unknown>(`/worlds/${worldId}/state`));
       return WorldSummarySchema.parse(await commit(latest.world.version));
+    }
+  },
+  async movePlayer(worldId: string, target: Position, expectedVersion: number): Promise<PlayerMoveResult> {
+    const idempotencyKey = crypto.randomUUID();
+    const commit = (version: number) => request<unknown>(`/worlds/${worldId}/player/move`, {
+      method: "POST",
+      body: JSON.stringify({ target, expectedVersion: version, idempotencyKey }),
+    });
+    try {
+      return PlayerMoveResultSchema.parse(await commit(expectedVersion));
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.code !== "WORLD_VERSION_CONFLICT") throw error;
+      const latest = WorldStateSchema.parse(await request<unknown>(`/worlds/${worldId}/state`));
+      return PlayerMoveResultSchema.parse(await commit(latest.world.version));
     }
   },
 };

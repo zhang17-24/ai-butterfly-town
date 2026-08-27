@@ -29,6 +29,10 @@ export function WorldPage() {
     refetchInterval: 3000,
   });
   const pause = useMutation({ mutationFn: (paused: boolean) => api.setPaused(worldId, paused, store.world?.version ?? 0) });
+  const move = useMutation({
+    mutationFn: (target: { x: number; y: number }) => api.movePlayer(worldId, target, useWorldStore.getState().world?.version ?? 0),
+    onSuccess: (result) => useWorldStore.getState().applyPlayerMove(result),
+  });
 
   useEffect(() => {
     if (initial.data) store.applyMessage({
@@ -47,6 +51,12 @@ export function WorldPage() {
     gameEvents.addEventListener("npc:selected", listener);
     return () => gameEvents.removeEventListener("npc:selected", listener);
   }, []);
+
+  useEffect(() => {
+    const listener = (event: Event) => move.mutate((event as CustomEvent<{ x: number; y: number }>).detail);
+    gameEvents.addEventListener("map:move", listener);
+    return () => gameEvents.removeEventListener("map:move", listener);
+  }, [worldId]);
 
   useEffect(() => {
     if (!worldId) return;
@@ -92,7 +102,9 @@ export function WorldPage() {
       <section className="world-layout">
         <div className="map-stage">
           <TownCanvas />
-          <div className="map-legend">点击居民查看状态 · 世界每 2 秒前进 1 分钟</div>
+          <div className={move.isError ? "map-legend error" : "map-legend"}>
+            {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
+          </div>
         </div>
         <aside className="event-sidebar">
           <div className="sidebar-heading"><span>小镇动态</span><b>{store.events.length}</b></div>

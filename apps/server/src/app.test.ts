@@ -57,6 +57,39 @@ describe("day-one vertical slice", () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it("moves the persisted player through the blueprint grid and rejects blocked targets", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const setCookie = login.headers["set-cookie"];
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(";")[0];
+    const before = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+
+    const moved = await built.app.inject({
+      method: "POST",
+      url: "/api/worlds/world_qixi_town/player/move",
+      headers: { cookie: cookie! },
+      payload: { target: { x: 620, y: 350 }, expectedVersion: before.world.version, idempotencyKey: "player-move-0001" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json()).toMatchObject({ player: { position: { x: 620, y: 350 } }, world: { version: before.world.version + 1 }, replayed: false });
+    expect(moved.json().path.length).toBeGreaterThan(1);
+
+    const restored = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    expect(restored.player.position).toEqual({ x: 620, y: 350 });
+    const blocked = await built.app.inject({
+      method: "POST",
+      url: "/api/worlds/world_qixi_town/player/move",
+      headers: { cookie: cookie! },
+      payload: { target: { x: 400, y: 500 }, expectedVersion: restored.world.version, idempotencyKey: "player-move-0002" },
+    });
+    expect(blocked.statusCode).toBe(422);
+    expect(blocked.json().error.code).toBe("TARGET_NOT_WALKABLE");
+    const unchanged = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    expect(unchanged.player.position).toEqual({ x: 620, y: 350 });
+    expect(unchanged.world.version).toBe(restored.world.version);
+  });
+
   it("commits a versioned pause command once for the same idempotency key", async () => {
     const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
     activeApp = built.app;

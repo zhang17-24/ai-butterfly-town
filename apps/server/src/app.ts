@@ -29,6 +29,11 @@ const PauseSchema = z.object({
   expectedVersion: z.number().int().nonnegative().optional(),
   idempotencyKey: z.string().min(8).max(128).optional(),
 });
+const MovePlayerSchema = z.object({
+  target: z.object({ x: z.number().min(0).max(900), y: z.number().min(0).max(620) }),
+  expectedVersion: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(8).max(128),
+});
 
 export async function buildApp(overrides: Partial<AppConfig> = {}) {
   const config = loadConfig(overrides);
@@ -139,6 +144,29 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
       } satisfies RealtimeMessage);
     }
     return result.world;
+  });
+
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/player/move", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = MovePlayerSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_MOVE", message: "移动目标格式不正确", recoverable: true, details: {} } });
+    const command = repository.executeMovePlayerCommand({ userId: request.userId!, worldId: request.params.worldId, ...parsed.data });
+    if (command.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_OR_PLAYER_NOT_FOUND", message: "世界或玩家不存在", recoverable: false, details: {} } });
+    if (command.kind === "unreachable") return reply.code(422).send({ error: { code: "TARGET_NOT_WALKABLE", message: "那里无法到达，请点击道路或广场", recoverable: true, details: {} } });
+    if (command.kind === "idempotency_conflict") return reply.code(409).send({ error: { code: "IDEMPOTENCY_KEY_REUSED", message: "同一个请求标识不能用于不同命令", recoverable: true, details: {} } });
+    if (command.kind === "version_conflict") return reply.code(409).send({ error: { code: "WORLD_VERSION_CONFLICT", message: "世界状态已经变化，请刷新后重试", recoverable: true, details: { currentVersion: command.currentVersion } } });
+    if (!command.result.replayed) {
+      hub.broadcast(command.result.world.id, {
+        eventId: command.result.event.id,
+        worldId: command.result.world.id,
+        branchId: command.result.world.activeBranchId,
+        version: command.result.world.version,
+        emittedAt: new Date().toISOString(),
+        type: "world.status",
+        data: command.result.world,
+        event: command.result.event,
+      } satisfies RealtimeMessage);
+    }
+    return command.result;
   });
 
   if (config.serveWeb) {

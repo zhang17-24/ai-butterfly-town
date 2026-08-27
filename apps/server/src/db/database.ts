@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS npcs (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_npcs_world ON npcs(world_id);
+CREATE TABLE IF NOT EXISTS players (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  position_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_players_world_user ON players(world_id, user_id);
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   world_id TEXT NOT NULL,

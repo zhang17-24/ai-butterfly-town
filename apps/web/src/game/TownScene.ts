@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { Npc } from "@ai-town/shared";
+import type { Npc, Player, Position } from "@ai-town/shared";
 import { gameEvents } from "./event-bus";
 
 const placeLabels = [
@@ -18,6 +18,7 @@ type NpcMarker = Phaser.GameObjects.Container & {
 
 export class TownScene extends Phaser.Scene {
   private markers = new Map<string, NpcMarker>();
+  private playerMarker: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super("TownScene");
@@ -45,6 +46,10 @@ export class TownScene extends Phaser.Scene {
         strokeThickness: 1,
       }).setOrigin(0.5).setDepth(5);
     }
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
+      if (currentlyOver.length > 0) return;
+      gameEvents.dispatchEvent(new CustomEvent("map:move", { detail: { x: Math.round(pointer.worldX), y: Math.round(pointer.worldY) } }));
+    });
   }
 
   applyNpcs(npcs: Npc[]): void {
@@ -76,6 +81,35 @@ export class TownScene extends Phaser.Scene {
         this.tweens.add({ targets: marker, x: npc.state.position.x, y: npc.state.position.y, duration: 1200, ease: "Sine.easeInOut" });
       }
     }
+  }
+
+  applyPlayer(player: Player | null, path: Position[] = []): void {
+    if (!this.scene.isActive() || !player) return;
+    if (!this.playerMarker) {
+      const halo = this.add.ellipse(0, 13, 34, 14, 0x68d5ff, 0.48).setStrokeStyle(2, 0xeaffff, 0.9);
+      const avatar = this.createPixelAvatar("player", 0x285f83);
+      const badge = this.add.text(0, -40, "你", {
+        color: "#e9fbff", backgroundColor: "#153f54e8", padding: { x: 8, y: 4 }, fontSize: "12px", fontStyle: "bold", fontFamily: "sans-serif",
+      }).setOrigin(0.5);
+      this.playerMarker = this.add.container(player.position.x, player.position.y, [halo, avatar, badge]).setDepth(30);
+    }
+    this.tweens.killTweensOf(this.playerMarker);
+    const destinations = path.length > 1 ? path.slice(1) : [player.position];
+    this.movePlayerAlong(destinations, 0);
+  }
+
+  private movePlayerAlong(path: Position[], index: number): void {
+    if (!this.playerMarker || index >= path.length) return;
+    const destination = path[index];
+    const distance = Phaser.Math.Distance.Between(this.playerMarker.x, this.playerMarker.y, destination.x, destination.y);
+    this.tweens.add({
+      targets: this.playerMarker,
+      x: destination.x,
+      y: destination.y,
+      duration: Math.max(70, Math.min(180, distance * 4)),
+      ease: "Linear",
+      onComplete: () => this.movePlayerAlong(path, index + 1),
+    });
   }
 
   private createPixelAvatar(npcId: string, clothingColor: number): Phaser.GameObjects.Container {

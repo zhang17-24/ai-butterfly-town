@@ -200,6 +200,22 @@ export const NpcSchema = z.object({
   state: NpcStateSchema,
 });
 
+export const PlayerSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  worldId: z.string(),
+  name: z.string(),
+  position: PositionSchema,
+});
+
+export const PlayerMoveResultSchema = z.object({
+  player: PlayerSchema,
+  path: z.array(PositionSchema).min(1),
+  world: z.lazy(() => WorldSummarySchema),
+  event: z.lazy(() => TownEventSchema),
+  replayed: z.boolean(),
+});
+
 export const TownEventSchema = z.object({
   id: z.string(),
   worldId: z.string(),
@@ -229,6 +245,7 @@ export const WorldSummarySchema = z.object({
 
 export const WorldStateSchema = z.object({
   world: WorldSummarySchema,
+  player: PlayerSchema,
   npcs: z.array(NpcSchema),
   recentEvents: z.array(TownEventSchema),
 });
@@ -308,6 +325,8 @@ export type AiTrace = z.infer<typeof AiTraceSchema>;
 export type NpcProfile = z.infer<typeof NpcProfileSchema>;
 export type NpcState = z.infer<typeof NpcStateSchema>;
 export type Npc = z.infer<typeof NpcSchema>;
+export type Player = z.infer<typeof PlayerSchema>;
+export type PlayerMoveResult = z.infer<typeof PlayerMoveResultSchema>;
 export type TownEvent = z.infer<typeof TownEventSchema>;
 export type WorldSummary = z.infer<typeof WorldSummarySchema>;
 export type WorldState = z.infer<typeof WorldStateSchema>;
