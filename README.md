@@ -1,6 +1,6 @@
 # AI 蝴蝶小镇
 
-一个持续自主运行的 Web AI 小镇。Day 1、M2 和 M3 已经贯通，并加入首个视觉生成纵向切片：账号登录、内置栖溪镇、5 名完整居民、真实 AI/Mock 自主决策、结构化校验与修复、可解释 Trace、原创像素地图、程序化像素居民、版本化世界命令、WebSocket 恢复，以及 SQLite 保存恢复。
+一个持续自主运行的 Web AI 小镇。M1–M4 已经贯通（含玩家 A* 移动与 NPC 对话），并加入首个视觉生成纵向切片：账号登录、内置栖溪镇、5 名完整居民、真实 AI/Mock 自主决策、结构化校验与修复、可解释 Trace、原创像素地图、程序化像素居民、版本化世界命令、WebSocket 恢复，以及 SQLite 保存恢复。
 
 项目需求以 **Living Requirement Map v1.5（D01–D132）** 为基线；D125–D132 记录开发路线、参考边界与当前实装顺序，不扩大面试 MVP 的产品范围。
 
@@ -15,7 +15,12 @@
 - 删除全部 AI Key 仍可完整体验（当前默认就是 Mock 模式）。
 - 配置 SIMULATION AI 后查看真实模型选择；模型超时、坏输出或调用预算耗尽时自动降级。
 - 体验原创的栖溪镇像素地图；IMAGE/VISION 未配置时自动使用预生成地图和程序化居民。
-- 作为蓝色像素玩家居民点击道路移动；路径由服务端 Blueprint 网格与 A* 校验，河流和建筑目标会被拒绝，刷新后位置恢复。
+- 作为居民点击道路移动；路径由服务端 Blueprint 网格与 A* 校验，河流和建筑目标会被拒绝，刷新后位置恢复。
+- **NPC 沿 A* 路径逐格行走**（跨桥、绕行建筑），地图顶栏“行走区域”按钮可切换 Blueprint 可走范围的高亮叠加层。
+- **居民使用 Seedream 5.0 生成的 6×5 像素精灵表**（左/前/背行走循环 + 待机帧），生成脚本与两类资产已入库；无图片时回退程序化像素人。
+  ```bash
+  pnpm generate:sprites          # 生成全部；或 pnpm generate:sprites npc_lin_xia 生成单个
+  ```
 
 M2 提供旧库迁移、版本冲突、幂等、事务回滚和断线恢复。M3 在此基础上加入 OpenAI-compatible Responses/Chat Provider、受限候选选择、一次校验修复、两次请求尝试、每 Tick 调用预算和与世界状态同事务保存的 AI Trace。
 
@@ -46,13 +51,25 @@ pnpm verify
 
 该命令执行类型检查、离线测试和生产构建。测试无需网络与 AI Key。
 
+### 交付 / CI / Docker
+
+- CI：`.github/workflows/ci.yml` 在 push/PR 时执行 `pnpm install && pnpm typecheck && pnpm test && pnpm build`。
+- 交付检查：`pnpm delivery:check` 先跑 `pnpm verify`，再输出人工确认清单（线上 URL、演示账号、AI 限额、视频等）。
+- Docker：`Dockerfile` + `docker-compose.yml` 单服务托管 Web 静态文件、REST、WebSocket 与仿真 Worker，开放 `http://localhost:3100`，数据库挂载到 `ai-town-data` 卷。
+
+```bash
+docker compose up --build
+```
+
+> 已知风险：生产运行时 `packages/shared` 以 `exports: "./src/index.ts"` 指向源码，`node apps/server/dist/index.js` 可能无法解析 `.ts` 源码。CI 只做 `tsc` 编译不受影响；容器化真正启动前需将该包改为 `dist` 导出（见 docs/remaining-requirements.md D102）。
+
 ## 设计与实现规划
 
 - [技术方案](./docs/technical-design.md)：架构、领域模型、数据/API、AI/Mock、持久化、测试与部署取舍；
 - [实现规划](./docs/implementation-plan.md)：Day 1 审计、Day 2/3 里程碑、验收矩阵、风险与裁剪顺序。
 - [WorldX 生成研究](./docs/worldx-generation-study.md)：审阅范围、可借鉴机制、自有提示词与“蓝图权威”差异。
 
-文档会明确区分“已实现、下一步实现、只预留接口”。M3 与视觉生成纵向切片已完成，当前开发 M4 玩家居民、权威 A* 移动与对话。
+文档会明确区分“已实现、下一步实现、只预留接口”。M1–M4 与视觉生成纵向切片已完成；剩余项（M5 事件注入与因果链、M6 快照/分支/跳过、M7 接线、M8 工作台、M9 收尾见 [remaining-requirements.md](./docs/remaining-requirements.md)）。
 
 ## 工程结构
 

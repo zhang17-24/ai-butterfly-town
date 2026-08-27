@@ -252,4 +252,63 @@ describe("day-one vertical slice", () => {
     const moving = state.npcs.filter((npc: any) => Array.isArray(npc.state.actionPath) && npc.state.actionPath.length > 1);
     expect(moving.length).toBeGreaterThan(0);
   });
+
+  it("previews an event without writing, commits it with knowledge spread and builds a causal graph", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const cookie = (Array.isArray(login.headers["set-cookie"]) ? login.headers["set-cookie"][0] : login.headers["set-cookie"])?.split(";")[0];
+    const before = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+
+    const preview = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/preview", headers: { cookie: cookie! },
+      payload: { text: "暴雨预警，河岸市集可能延期到下周" },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().affectedNpcCount).toBeGreaterThan(0);
+    expect(preview.json()).toMatchObject({ confidence: expect.any(Number), preview: { audience: "public" } });
+
+    const afterPreview = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    expect(afterPreview.world.version).toBe(before.world.version);
+    expect(afterPreview.recentEvents.length).toBe(before.recentEvents.length);
+
+    const commit = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/commit", headers: { cookie: cookie! },
+      payload: { preview: preview.json().preview, expectedVersion: before.world.version, idempotencyKey: "event-commit-0001" },
+    });
+    expect(commit.statusCode).toBe(200);
+    expect(commit.json().event.type).toBe("factory.event");
+    expect(commit.json().event.source).toBe("player");
+    expect(commit.json().world.version).toBe(before.world.version + 1);
+    expect(commit.json().affectedNpcs.length).toBe(preview.json().affectedNpcCount);
+    const knowledgeRows = built.repository.raw.prepare("SELECT COUNT(*) AS count FROM knowledge WHERE world_id = ?").get("world_qixi_town") as { count: number };
+    expect(knowledgeRows.count).toBe(preview.json().affectedNpcCount);
+    const summaries = built.repository.getKnownEventSummaries("world_qixi_town", commit.json().affectedNpcs[0].agentId, 5);
+    expect(summaries.length).toBeGreaterThan(0);
+    expect(summaries[0].eventId).toBe(commit.json().event.id);
+
+    const replay = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/commit", headers: { cookie: cookie! },
+      payload: { preview: preview.json().preview, expectedVersion: before.world.version, idempotencyKey: "event-commit-0001" },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().event.id).toBe(commit.json().event.id);
+
+    const conflict = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/commit", headers: { cookie: cookie! },
+      payload: { preview: preview.json().preview, expectedVersion: before.world.version, idempotencyKey: "event-commit-0002" },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error.code).toBe("WORLD_VERSION_CONFLICT");
+
+    const timeline = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/timeline?afterVersion=" + before.world.version, headers: { cookie: cookie! } });
+    expect(timeline.statusCode).toBe(200);
+    expect(timeline.json().at(-1).type).toBe("factory.event");
+
+    const causal = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/causal", headers: { cookie: cookie! } });
+    expect(causal.statusCode).toBe(200);
+    expect(causal.json().events.some((event: any) => event.type === "factory.event")).toBe(true);
+    expect(causal.json().edges).toEqual([]);
+  });
+
 });

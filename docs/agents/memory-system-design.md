@@ -45,7 +45,8 @@
 | `kind` | TEXT(枚举) | 已有列;**扩展枚举值**:`dialogue` \| `event` \| `action` \| `summary` \| `insight`(旧数据 kind="dialogue" 兼容) |
 | `content` | TEXT | 已有:经历正文(主观第一人称或第三人称叙事,≤240 字,与对话 memory 字段同构) |
 | `metadata_json` | TEXT | 已有,扩展键控(见 §2.2) |
-| `created_at` | TEXT | 已有 |
+| `created_at` | TEXT | 已有(墙钟,仅作审计) |
+| `world_minute` | INTEGER | **新增** | 记忆发生时的世界分钟(基准=D123 起 08:20;新近度一律用它,保证固定种子可复现,不依赖墙钟 `created_at`) |
 | `importance` | INTEGER 0-100 | **新增**,写时标注,见 §4.2 |
 | `subject` | TEXT | **新增**:记忆对象。人物 = guardTrainedId;地点 = locationId;其余 = 主题词(如 "market"/"rain")。用于对象匹配加成与分簇 |
 | `source_identifier` | TEXT | **新增** 幂等键:`{kind}:{worldId}:{ownerId}:{来源事件id或会话id或日期}`。相同键跳过写入 |
@@ -66,22 +67,22 @@
 }
 ```
 
-### 2.3 FTS5 镜像表
+### 2.3 FTS5 镜像表（MVP 缓用，明确取舍）
+
+> **评审修正**：FTS5 的 `unicode61` 对**中文整段**按一个 token 切分（无空格 → 单 token），若只把 `content` 原样入库，则「2-gram 化查询词」几乎匹配不到（整段=一个词，查单字 2gram 不命）。同时本设计 §6.1 已把召回做成「先按 agent 载入 `MemoryEntryView[]` 再做纯内存评分」——FTS 反而与内存评分重复。
+
+**因此 MVP 采取：纯内存 2-gram 匹配，不建 FTS 镜像表。** 只有当单 NPC 记忆量明显增大（暂估 >200 条）需要先缩候选集时，才启用 FTS，且**必须对入库内容做 2-gram 分词再存入**（`content_grams`，空格分隔），查询词同样 2-gram 化后 MATCH。以下仅作未来草案：
 
 ```sql
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   memory_id UNINDEXED,
-  content,
-  subject,
-  agent_id UNINDEXED,
-  tokenize = 'unicode61'
+  content_grams,          -- 2-gram 化后的文本,空格分隔
+  subject_grams,
+  agent_id UNINDEXED
 );
-CREATE INDEX IF NOT EXISTS idx_memories_fts_agent ON memories_fts(agent_id);
 ```
 
-- 写入/更新记忆时同步 upsert 一行(删除时同步删);
-- 检索只对 `agent_id` 范围做 MATCH(先按 agent 过滤,再按相关度);
-- 迁移回填:对既有 `memories` 全部行建 FTS 行。
+- 启用时才同步 upsert；MVP 不做镜像与回填，保留 §2.4 的列迁移即可。
 
 ### 2.4 索引与迁移步骤
 
@@ -140,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_agent_imp ON memories(world_id, agent_id
 最终 importance = max(模型附注分, 规则计算分), 夹取到 [1, 100]
 ```
 - **AI 附注**:决策/对话输出 Schema 增加可选字段 `memoryImportance?: number`(与现有 `memory?: string` 同构,≥60 才写入;不写则只用规则分);AI 附注标记 `aiAnnotated: true`;
+- **注意(接入 DeepSeek/chat,json_object 模式)**:Provider 现为 chat 风格 `response_format={type:"json_object"}`(DeepSeek 不支持 json_schema 严格模式)。故新增 `memoryImportance` 时,两边 decider 的 instructions 必须**显式写出完整 JSON 形状**(含 "json" 字样),如 `{"reply":"…","intent":"…","memory":"…","memoryImportance":60}`,否则 json_object 模式可能按任意 JSON 返回导致缺字段/校验失败——与已有 `completeDialogue` 提示词改法一致。
 - **规则兜底(Mock 与 AI 均生效)**:纯函数 `computeMemoryImportance(spec)`,见 §4.2;
 - 演示强调:同一输入(种子固定)规则分确定,故 AI 附注字缺失时 Mock/AI 回退到同一规则分 → **两端一致**。
 
@@ -252,7 +254,7 @@ export function retrieveMemories(entries: MemoryEntryView[], ctx: RecallContext)
 ```
 ftsScore = 命中数量 / 词项数(0-1)
 importanceScaled = importance / 100
-recency = exp(-(worldNow - createdAt) / HALF_LIFE_DAYS * ln2)   // HALF_LIFE_DAYS = 1 世界日 = 2880 世界分钟
+recency = exp(-max(0,(worldNowMinute - createdAtMinute)) / HALF_LIFE_WORLD_MINUTES * ln2)   // HALF_LIFE_WORLD_MINUTES = 1440(1 世界日 = 24*60 游戏分钟),一律用世界分钟,种子可复现
 objectBonus = +0.15 (relatedAgentId 或 locationId 与 subject 匹配)
 
 score = 0.45·ftsScore + 0.35·importanceScaled + 0.20·recency + objectBonus
@@ -267,9 +269,10 @@ score = 0.45·ftsScore + 0.35·importanceScaled + 0.20·recency + objectBonus
 ```
 1. 中文:按连续中文字符 2-gram 切分("市集取消" → 市集,集取,取消),去重;
 2. 英文/数字:按 [0-9a-zA-Z_]+ 切分,小写;
-3. FTS MATCH = 各词项 OR 链接;命中数 ↑ → ftsScore ↑。
+3. 命中数:`tokenizeQuery(query)` 每词项在 `entry.content` 中出现即 +1,ftsScore = 命中/词项数(内存匹配,纯函数)。
 ```
 实现细节与单测:`tokenizeQuery("暴雨天市集" )` → ["暴雨","雨天","天市","市集"];空查询(无可分词)时 ftsScore=0。
+> 若未来启用 FTS5(§2.3),则入库内容也须按同样规则 2-gram 化后写入 `content_grams`;查询词 2-gram 化后做 MATCH,不能对原文匹配。
 
 ### 6.4 召回理由(可解释)
 
@@ -440,3 +443,26 @@ score = 0.45·ftsScore + 0.35·importanceScaled + 0.20·recency + objectBonus
 - 不做"记忆可视化因果图"(面板列表+理由即止);
 - 不做完整 LLMOps(数据集/批量评测);
 - 不做记忆遗忘的滑翔窗口压缩之外的心理学模型(如睡眠合并、强度衰减重演)。
+
+---
+
+## 13. 评审与优化记录（Claude B, 2026-08-28）
+
+**总体评价**：设计扎实，覆盖 D13/D14/D17/D24/D41/D51/D54/D68/D69/D83 的关键闭环——三层存储分工、importance、召回评分、日复盘/insight、Mock 一致性、测试矩阵与串/并行划分都很到位，可直接作为实现依据。**判断：通过（有必要的前置修正与范围收敛）。**
+
+**本记录针对性优化（已改到上文对应小节）**：
+
+| 优化点 | 原问题 | 处理 |
+| --- | --- | --- |
+| ① FTS5/中文分词（§2.3、§6.3） | `unicode61` 对中文整段=单 token，2-gram 查询词命中率≈0；且 §6.1 已按 view 做纯内存评分，FTS 与内存匹配重复 | 改为 **MVP 纯内存 2-gram 匹配**，不建 FTS 镜像表；FTS 列为「>200 条时启用且须对入库内容 2-gram 化」的后续优化 |
+| ② 新近度基准（§2.1、§6.2） | `created_at` 为墙钟，恢复/种子不可复现 | 新增 `world_minute` 列；recency 一律用世界分钟 |
+| ③ 半衰期常量（§6.2） | `HALF_LIFE_DAYS=2880` 注释误标「1 世界日」（1 世界日=1440 游戏分钟） | 改为 `HALF_LIFE_WORLD_MINUTES=1440` |
+| ④ DeepSeek/chat 约束（§4.1） | 新字段 `memoryImportance` 走 chat `json_object`，DeepSeek 不支持 json_schema 严格模式 | 注明 instructions 须显式写完整 JSON 形状（含 "json" 字样），与现有 `completeDialogue` 提示词改法一致 |
+
+**范围收敛建议（保证「做扎实」同时可投产；按 MVP/打磨两级切）**：
+
+- **MVP 核心（先做，可验收）**：W1（对话）/W2（事件）写入 + importance + `world_minute`；`retrieveMemories` 纯内存召回 → 注入对话/决策上下文；Mock 加成 + AI 一致性；NPC 面板「记忆列表 + 召回理由」。对应验收 P1–P4。
+- **打磨级（其后）**：W3（行动）/W4（日复盘 summary + insight + 归档裁剪）、`recalledCount`（读路径写计数，建议做成尽力而为/异步，避免读放大）、`memoryImportance` AI 附注、FTS5、玩家侧记忆。
+- 理由：MVP 即可达成「居民真的记得 + 可证明 + 无 Key 也成立」的演示主干，且不与其他在途切片（M5/M7）争热度；打磨项不阻塞验收。
+
+**与在途切片的协同提醒**：§10 的串/并行边界正确；新增 `apps/server/src/memory/*` 为新目录，不与任何在途切片冲突。改动 `shared/index.ts`/`db/*`/`app.ts` 仍按「串行区一次一会话」登记后进行。

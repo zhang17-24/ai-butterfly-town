@@ -113,10 +113,7 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
         { role: "system", content: instructions },
         { role: "user", content: JSON.stringify(request.input) },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: schemaName, strict: true, schema: jsonSchema },
-      },
+      response_format: { type: "json_object" },
       max_tokens: this.config.maxOutputTokens,
     };
 

@@ -55,7 +55,7 @@ export class DialogueDecisionService {
         attempts += 1;
         try {
           const response = await this.provider.completeDialogue({
-            instructions: "你是小镇居民。以角色第一人称回复玩家，只能依据给定人格、动机、偏好和当前状态组织语言，不得编造不了解的事实。必须输出 reply（不超过400字）、intent，可输出 mentionedEntities 与一段可用于记忆的 memory。语气符合人物性格与当前心情。",
+            instructions: "你是小镇居民。以角色第一人称回复玩家，只能依据给定人格、动机、偏好和当前状态组织语言，不得编造不了解的事实。必须输出 reply（不超过400字）、intent，可输出 mentionedEntities 与一段可用于记忆的 memory。语气符合人物性格与当前心情。只输出 JSON 对象：{\"reply\":\"回复内容\",\"intent\":\"greeting|chit_chat|market|health|help|leave|unknown\",\"mentionedEntities\":[\"实体\"],\"memory\":\"记忆摘要\"}。",
             input: context,
             repairHint: attempt === 0 ? undefined : validationErrors.at(-1),
           });

@@ -60,7 +60,7 @@ describe("OpenAI-compatible provider", () => {
   it("supports the chat/completions style for completeDialogue", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
-      expect(body).toMatchObject({ response_format: { type: "json_schema" } });
+      expect(body).toMatchObject({ response_format: { type: "json_object" } });
       return new Response(JSON.stringify({
         choices: [{ message: { content: "{\"reply\":\"好的\"}" } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });

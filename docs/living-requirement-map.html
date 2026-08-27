@@ -1,0 +1,928 @@
+<div id="ai-town-map">
+  <style>
+    #ai-town-map {
+      --ink: light-dark(#17211b, #edf6ef);
+      --muted: light-dark(#657069, #9faaa2);
+      --line: light-dark(#d8ded9, #34413a);
+      --panel: light-dark(#ffffff, #18221c);
+      --panel-soft: light-dark(#f5f8f5, #202c25);
+      --green: light-dark(#246b49, #74d69e);
+      --green-soft: light-dark(#e8f4ec, #183b28);
+      --amber: light-dark(#9b6418, #f0bd6e);
+      --amber-soft: light-dark(#fbf0dd, #3f301a);
+      --blue: light-dark(#31698f, #79bde9);
+      --blue-soft: light-dark(#e9f3f9, #1b3444);
+      --violet: light-dark(#76549a, #c2a0e5);
+      --violet-soft: light-dark(#f2ecf8, #352543);
+      color: var(--ink);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      width: 100%;
+    }
+    #ai-town-map * { box-sizing: border-box; }
+    #ai-town-map .atm-shell {
+      width: 100%;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--panel);
+    }
+    #ai-town-map .atm-head {
+      padding: 26px 28px 21px;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--green) 13%, transparent) 0, transparent 29%),
+        var(--panel);
+    }
+    #ai-town-map .atm-kicker {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--green);
+      font-weight: 750;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    #ai-town-map .atm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    #ai-town-map h1 { margin: 10px 0 8px; font-size: clamp(27px, 5vw, 42px); line-height: 1.08; letter-spacing: -.04em; }
+    #ai-town-map .atm-sub { max-width: 760px; color: var(--muted); font-size: 15px; line-height: 1.65; }
+    #ai-town-map .atm-nav {
+      display: flex;
+      gap: 4px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+      background: var(--panel-soft);
+    }
+    #ai-town-map .atm-tab {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 9px 13px;
+      border-radius: 10px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    #ai-town-map .atm-tab[aria-selected="true"] { color: var(--ink); background: var(--panel); box-shadow: 0 0 0 1px var(--line); }
+    #ai-town-map .atm-view { display: none; padding: 24px; }
+    #ai-town-map .atm-view.is-active { display: block; }
+    #ai-town-map .atm-section-title { margin: 0 0 14px; font-size: 13px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+    #ai-town-map .atm-pitch {
+      padding: 19px 20px;
+      border-left: 4px solid var(--green);
+      border-radius: 4px 14px 14px 4px;
+      background: var(--green-soft);
+      font-size: clamp(16px, 2.5vw, 21px);
+      line-height: 1.6;
+      font-weight: 680;
+    }
+    #ai-town-map .atm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    #ai-town-map .atm-card { border: 1px solid var(--line); border-radius: 16px; padding: 17px; background: var(--panel); min-height: 140px; }
+    #ai-town-map .atm-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #ai-town-map .atm-card h3 { margin: 0; font-size: 16px; }
+    #ai-town-map .atm-tag { padding: 4px 8px; border-radius: 99px; font-size: 11px; font-weight: 750; }
+    #ai-town-map .atm-tag.fixed { color: var(--green); background: var(--green-soft); }
+    #ai-town-map .atm-tag.hypo { color: var(--amber); background: var(--amber-soft); }
+    #ai-town-map .atm-card p { margin: 11px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    #ai-town-map .atm-mini { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+    #ai-town-map .atm-mini span { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; color: var(--muted); background: var(--panel-soft); }
+    #ai-town-map .atm-loop { display: grid; grid-template-columns: repeat(7, minmax(90px, 1fr)); align-items: center; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; }
+    #ai-town-map .atm-step { min-height: 108px; padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-soft); }
+    #ai-town-map .atm-step b { display: block; font-size: 13px; margin-bottom: 7px; }
+    #ai-town-map .atm-step small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    #ai-town-map .atm-arrow { color: var(--green); font-weight: 900; text-align: center; }
+    #ai-town-map .atm-ripple { margin-top: 20px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    #ai-town-map .atm-ripple-head { padding: 12px 15px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 750; }
+    #ai-town-map .atm-ripple-body { padding: 16px; display: grid; grid-template-columns: 170px 1fr; gap: 16px; }
+    #ai-town-map .atm-seed { border-radius: 12px; padding: 13px; background: var(--amber-soft); color: var(--amber); font-size: 12px; line-height: 1.5; font-weight: 700; }
+    #ai-town-map .atm-chain { display: grid; gap: 8px; }
+    #ai-town-map .atm-chain-row { display: flex; gap: 9px; align-items: flex-start; color: var(--muted); font-size: 12px; }
+    #ai-town-map .atm-chain-node { width: 9px; height: 9px; margin-top: 4px; flex: 0 0 auto; border: 2px solid var(--green); border-radius: 50%; }
+    #ai-town-map .atm-layers { display: grid; gap: 10px; }
+    #ai-town-map .atm-layer { display: grid; grid-template-columns: 135px 1fr; border: 1px solid var(--line); border-radius: 15px; overflow: hidden; }
+    #ai-town-map .atm-layer-label { padding: 17px; font-size: 13px; font-weight: 800; }
+    #ai-town-map .atm-layer:nth-child(1) .atm-layer-label { background: var(--green-soft); color: var(--green); }
+    #ai-town-map .atm-layer:nth-child(2) .atm-layer-label { background: var(--blue-soft); color: var(--blue); }
+    #ai-town-map .atm-layer:nth-child(3) .atm-layer-label { background: var(--violet-soft); color: var(--violet); }
+    #ai-town-map .atm-layer-items { padding: 13px 15px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    #ai-town-map .atm-layer-items span { border: 1px solid var(--line); background: var(--panel-soft); padding: 7px 9px; border-radius: 9px; color: var(--muted); font-size: 12px; }
+    #ai-town-map .atm-boundary { margin-top: 18px; padding: 16px; border: 1px dashed var(--amber); border-radius: 14px; background: var(--amber-soft); }
+    #ai-town-map .atm-boundary b { color: var(--amber); font-size: 13px; }
+    #ai-town-map .atm-boundary div { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    #ai-town-map .atm-question-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+    #ai-town-map .atm-question { border: 1px solid var(--line); border-radius: 15px; padding: 15px; background: var(--panel-soft); }
+    #ai-town-map .atm-qnum { color: var(--amber); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+    #ai-town-map .atm-question h3 { margin: 7px 0 6px; font-size: 15px; }
+    #ai-town-map .atm-question p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    #ai-town-map .atm-decision-wrap { overflow-x: auto; }
+    #ai-town-map .atm-decision-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    #ai-town-map .atm-decision-table th { padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; text-align: left; letter-spacing: .06em; }
+    #ai-town-map .atm-decision-table td { padding: 13px 12px; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.55; vertical-align: top; }
+    #ai-town-map .atm-decision-table td:first-child { color: var(--green); font-weight: 750; white-space: nowrap; }
+    #ai-town-map .atm-decision-table td:nth-child(2) { font-weight: 700; white-space: nowrap; }
+    #ai-town-map .atm-decision-table td:nth-child(4) { color: var(--muted); }
+    #ai-town-map .atm-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    #ai-town-map .atm-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+    #ai-town-map .atm-legend span::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+    #ai-town-map .atm-legend .l1::before { background: var(--green); }
+    #ai-town-map .atm-legend .l2::before { background: var(--amber); }
+    @media (max-width: 720px) {
+      #ai-town-map .atm-head { padding: 21px 18px 18px; }
+      #ai-town-map .atm-view { padding: 18px; }
+      #ai-town-map .atm-grid, #ai-town-map .atm-question-grid { grid-template-columns: 1fr; }
+      #ai-town-map .atm-ripple-body, #ai-town-map .atm-layer { grid-template-columns: 1fr; }
+      #ai-town-map .atm-loop { grid-template-columns: 150px 24px 150px 24px 150px 24px 150px 24px 150px 24px 150px 24px 150px; }
+      #ai-town-map .atm-footer { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+
+  <section class="atm-shell" aria-label="AI 小镇项目全景图">
+    <header class="atm-head">
+      <div class="atm-kicker"><span class="atm-dot"></span>Living Requirement Map · v1.5</div>
+      <h1>AI 蝴蝶小镇</h1>
+      <div class="atm-sub">腾讯 AI 引擎部 · AI 全栈工程师面试项目｜先建立项目全貌，再通过持续对话逐层确定玩法、功能、数据与技术方案。</div>
+    </header>
+
+    <nav class="atm-nav" aria-label="项目视图切换">
+      <button class="atm-tab" type="button" data-view="overview" aria-selected="false">项目全景</button>
+      <button class="atm-tab" type="button" data-view="loop" aria-selected="false">核心体验</button>
+      <button class="atm-tab" type="button" data-view="runtime" aria-selected="false">运行骨架</button>
+      <button class="atm-tab" type="button" data-view="agents" aria-selected="false">NPC 系统</button>
+      <button class="atm-tab" type="button" data-view="player" aria-selected="false">玩家交互</button>
+      <button class="atm-tab" type="button" data-view="worldgen" aria-selected="false">世界生成</button>
+      <button class="atm-tab" type="button" data-view="rules" aria-selected="false">规则系统</button>
+      <button class="atm-tab" type="button" data-view="ai" aria-selected="false">AI 边界</button>
+      <button class="atm-tab" type="button" data-view="pages" aria-selected="false">页面结构</button>
+      <button class="atm-tab" type="button" data-view="persistence" aria-selected="false">保存恢复</button>
+      <button class="atm-tab" type="button" data-view="quality" aria-selected="false">Mock 测试</button>
+      <button class="atm-tab" type="button" data-view="architecture" aria-selected="false">技术架构</button>
+      <button class="atm-tab" type="button" data-view="scope" aria-selected="false">面试边界</button>
+      <button class="atm-tab" type="button" data-view="delivery" aria-selected="false">面试交付</button>
+      <button class="atm-tab" type="button" data-view="demo-world" aria-selected="false">演示世界</button>
+      <button class="atm-tab" type="button" data-view="progress" aria-selected="true">实现进度</button>
+      <button class="atm-tab" type="button" data-view="decisions" aria-selected="false">决策记录</button>
+      <button class="atm-tab" type="button" data-view="questions" aria-selected="false">待讨论</button>
+    </nav>
+
+    <div class="atm-view" data-panel="overview">
+      <div class="atm-section-title">一句话定义</div>
+      <div class="atm-pitch">一个持续自主运转的日常生活 AI 小镇；玩家可以观察居民、与他们交谈，并向世界投入“事件种子”，观察个体差异如何逐步形成群体层面的连锁变化。</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>世界</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>接近现实日常生活的小型社会空间。地点、时间与公共状态持续变化，而不是一次性聊天场景。</p>
+          <div class="atm-mini"><span>日夜/时间</span><span>地点</span><span>公共事件</span><span>可保存</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>居民 NPC</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>拥有明显不同的人设与属性，能感知当前状态，自主决定行动，并通过交流相互影响。</p>
+          <div class="atm-mini"><span>性格</span><span>需求</span><span>关系</span><span>记忆</span><span>行动</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>玩家</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>能力分三层：默认全局观察；作为一个居民 Agent 实例进入世界；并具备地图中的空间操控能力。</p>
+          <div class="atm-mini"><span>观察模式</span><span>居民实例</span><span>空间操控</span><span>对话与行动</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>独特价值</h3><span class="atm-tag hypo">亮点扩展</span></div>
+          <p>自主生活是必须完成的基架；蝴蝶效应是其上的亮点能力，首版保留事件注入与影响追踪的扩展接口。</p>
+          <div class="atm-mini"><span>蝴蝶效应</span><span>群体涌现</span><span>因果可视化</span><span>可解释 AI</span></div>
+        </article>
+      </div>
+    </div>
+
+    <div class="atm-view" data-panel="loop">
+      <div class="atm-section-title">玩家一次完整体验</div>
+      <div class="atm-loop" aria-label="核心体验闭环">
+        <div class="atm-step"><b>① 进入小镇</b><small>看到时间、地点、居民和正在发生的事情</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>② 观察生活</b><small>NPC 基于自身状态持续自主行动</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>③ 查看 / 对话</b><small>理解 NPC 的人设、状态、记忆和立场</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>④ 投入种子</b><small>加入一个物品、消息、天气或社会事件</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>⑤ 居民响应</b><small>NPC 各自理解事件并选择不同动作</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>⑥ 连锁扩散</b><small>行动、对话与关系变化继续影响他人</small></div><div class="atm-arrow">→</div>
+        <div class="atm-step"><b>⑦ 回看结果</b><small>沿时间线理解世界为什么发生变化</small></div>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">蝴蝶效应示意 · 暂定表达方式</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">玩家事件种子<br>“广场出现一个装有现金的钱包”</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>谨慎正直的居民先寻找失主</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>外向居民在咖啡馆传播消息</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>另一名居民隐瞒自己知道的信息</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>消息版本出现分歧，居民之间的信任发生变化</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="atm-view" data-panel="runtime">
+      <div class="atm-section-title">第一段 · 世界运行骨架 · 已确认</div>
+      <div class="atm-layers">
+        <div class="atm-layer"><div class="atm-layer-label">默认状态</div><div class="atm-layer-items"><span>世界持续实时运行</span><span>无人操作仍会演化</span><span>NPC 周期性自主生活</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">玩家介入</div><div class="atm-layer-items"><span>对话</span><span>移动 / 到场</span><span>世界事件</span><span>立即写入世界状态</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">决策触发</div><div class="atm-layer-items"><span>平时周期触发</span><span>重要事件提前触发</span><span>只唤醒相关 NPC</span><span>避免重复行动</span></div></div>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">运行链路</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">持续循环<br>感知 → 决策 → 行动 → 状态更新</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>没有外部事件：NPC 按自己的需求与计划继续生活</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>玩家中途介入：行为立即成为新的世界事实</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>受影响 NPC 提前感知并重新判断，其他 NPC 保持原节奏</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>运行控制仅保留暂停 / 继续；不做变速与单步推进</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="atm-view" data-panel="agents">
+      <div class="atm-section-title">第二段 · NPC 自主生活系统 · 已确认</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>居民模型</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>自然语言人设、数值特质与偏好标签共同塑造角色；状态覆盖身体、情绪、资源、社会关系和认知。</p>
+          <div class="atm-mini"><span>性格价值观</span><span>饥饿精力健康</span><span>金钱物品工作</span><span>关系声誉</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>自主驱动</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>宽松日程构成生活基线，动态需求产生偏离，玩家与世界事件可以打断并触发重新规划。</p>
+          <div class="atm-mini"><span>日程基线</span><span>需求驱动</span><span>事件响应</span><span>性格加权</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>目标与规划</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>长期目标指导每日计划，每个具体动作执行前根据最新世界状态再次确认。</p>
+          <div class="atm-mini"><span>长期目标</span><span>每日计划</span><span>当前动作</span><span>分层重规划</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>动作执行</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>AI 可以开放思考，但必须选择后端支持的动作工具；执行器校验环境条件并产生真实状态变化。</p>
+          <div class="atm-mini"><span>动作注册表</span><span>参数校验</span><span>状态更新</span><span>AI / Mock 共用</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">记忆与社会交互</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">记忆基础<br>短期事件 + 长期摘要 + 关系印象</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>按近期性、重要性与情境相关性召回记忆</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>高重要性经历积累后形成简短反思和稳定认识</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>普通闲聊只生成结果摘要；重要对话进行有限 2–4 轮交流</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>双方保存一致事实，但形成各自的主观记忆与关系变化</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-boundary"><b>人口与 AI 调度</b><div>首版先完成 5 名完整 NPC，扩展目标约 20 名；所有居民能力平等，不设置背景假人。公共事件只统一解析一次，再由受影响居民基于各自人格、记忆和关系独立决策，并使用受控并发执行。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="player">
+      <div class="atm-section-title">第三段 · 玩家与世界交互 · 已确认</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>玩家居民</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>玩家创建独立居民并可使用默认模板。玩家与 NPC 共享位置、状态、关系、记忆和动作模型，仅控制器为 human。</p>
+          <div class="atm-mini"><span>角色创建</span><span>默认模板</span><span>居民 Agent</span><span>人类控制</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>观察与参与</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>全局观察只解锁镜头；玩家居民继续留在当前位置，不消失，也不自动交给 AI 托管。</p>
+          <div class="atm-mini"><span>镜头解锁</span><span>身份连续</span><span>原地等待</span><span>事件提醒</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>空间移动</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>玩家点击地图寻路；点击 NPC 可以远程查看信息，选择现场动作后自动接近至合法交互距离。</p>
+          <div class="atm-mini"><span>点击寻路</span><span>障碍校验</span><span>自动接近</span><span>移动目标处理</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>居民互动</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>首版实现自由对话和至少 3 类情境动作；玩家与 NPC 共用动作工具，自然语言复合指令留作扩展。</p>
+          <div class="atm-mini"><span>对话</span><span>给予 / 交换</span><span>请求帮助</span><span>邀请同行</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">世界事件与蝴蝶效应</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">模板 / 自由输入<br>AI 解析 → 结构化预览 → 玩家确认</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>事件按私人、现场、公共、传闻或环境规则确定初始知情者</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>每名居民独立记录信息来源、版本、可信度和传播意愿</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>关键行为与状态变化保存父事件和决策依据，形成可回溯因果链</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>平行世界首版不运行，只预留世界快照和分支标识</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-boundary"><b>实时对话规则</b><div>对话时世界与其他居民继续运行；玩家和对话 NPC 进入 talking 状态，暂时不能执行冲突动作。紧急事件可打断对话，对话结束后双方根据期间的新世界状态重新规划。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="worldgen">
+      <div class="atm-section-title">第四段 · 动态世界生成与扩建 · 已确认</div>
+      <div class="atm-pitch">世界不由固定地点清单拼成。用户用一句话定义世界，系统生成结构、可玩地图、室内场景、居民社会和视觉风格；世界运行后仍可通过提案继续扩建。</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>一句话创建</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>编排器生成世界背景、地点与连接、室内结构、居民与关系、初始事件和规则。居民数量按世界规模建议，玩家可调整。</p>
+          <div class="atm-mini"><span>世界结构</span><span>社会角色</span><span>关系网络</span><span>初始事件</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>可玩地图</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>连续室外地图连接所有可进入的主要建筑室内；玩家和 NPC 共用跨场景导航。</p>
+          <div class="atm-mini"><span>连续室外</span><span>独立室内</span><span>入口传送点</span><span>跨场景寻路</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>生成与审查</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>先生成权威结构蓝图，再生成匹配美术；视觉模型识别实际道路、障碍和入口，与蓝图对比并执行可达性测试。</p>
+          <div class="atm-mini"><span>结构蓝图</span><span>AI 美术</span><span>视觉审查</span><span>自动寻路测试</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>视觉一致性</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>每个世界生成并锁定视觉风格规范；后续地图、室内、角色和扩建内容必须复用。</p>
+          <div class="atm-mini"><span>视角比例</span><span>颜色光照</span><span>角色规则</span><span>扩建复用</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">运行期世界扩建</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">玩家 / NPC 提案<br>结构与影响预览 → 玩家确认</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>优先搜索现有空地；空间不足时生成相邻新区并连接道路</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>室内作为独立场景生成，不受室外区域面积限制</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>新增地点通过能力标签保证进食、休息、工作、社交、安全与健康等闭环</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>生成完成后重新验证入口、道路、跨区域寻路和旧世界状态连续性</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-boundary"><b>可靠降级</b><div>视觉审查失败时严格保留权威蓝图并重新生成美术；达到重试上限后使用程序化基础素材渲染。关闭图像模型时，结构蓝图仍必须生成一张完整可玩的地图。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="rules">
+      <div class="atm-section-title">第五段 · 动作与数值规则 · 已确认</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>世界时间</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>固定加速时钟，暂定现实 2 秒等于小镇 1 分钟、一天约 48 分钟；比例可配置但运行中不切换速度。</p>
+          <div class="atm-mini"><span>统一时钟</span><span>动作耗时</span><span>日程时间</span><span>事件时间戳</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>安全跳时</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>可跳到当前动作结束或下一重要事件；后台完整结算期间变化，紧急事件提前停止并生成摘要。</p>
+          <div class="atm-mini"><span>动作完成</span><span>关键事件</span><span>完整结算</span><span>期间摘要</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>状态模型</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>内部使用 0–100 精确值，普通界面显示自然语言等级；调试面板展示数值、阈值和变化来源。</p>
+          <div class="atm-mini"><span>健康</span><span>饥饿</span><span>精力</span><span>心情</span><span>压力</span><span>社交需求</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>世界扩展状态</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>世界可生成体温、氧气、魔力等专属状态，但必须定义自然变化、增减来源、危险阈值和行为影响。</p>
+          <div class="atm-mini"><span>核心稳定</span><span>世界特色</span><span>规则校验</span><span>缺环拒绝</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">动作执行与资源一致性</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">动态组合动作<br>稳定原语 + 世界配置</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>移动、等待、状态增减、物品转移、关系修改、记忆与事件等原语可组合</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>动作先校验意图与资源，到达附近后短期预约，执行前再次校验</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>金钱、库存、物品和状态以原子方式更新，失败后释放预约并重新规划</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>AI 只能生成动作配置，不能在运行时生成和执行任意代码</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-layers" style="margin-top:18px">
+        <div class="atm-layer"><div class="atm-layer-label">关系</div><div class="atm-layer-items"><span>有方向</span><span>熟悉度</span><span>好感</span><span>信任</span><span>尊重</span><span>标签与共同经历</span><span>自然语言摘要</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">经济</div><div class="atm-layer-items"><span>收入与消费</span><span>实际库存</span><span>转移与消耗</span><span>定期补货</span><span>货币 / 物物交换</span><span>价格策略预留</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">极端状态</div><div class="atm-layer-items"><span>默认强制行为</span><span>能力限制</span><span>救援规则</span><span>严重后果按世界配置</span></div></div>
+      </div>
+    </div>
+
+    <div class="atm-view" data-panel="ai">
+      <div class="atm-section-title">第六段 · AI 职责边界与调用策略 · 已确认</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>四类模型角色</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>世界编排、运行模拟、图像生成和视觉审查拥有独立模型配置；不同角色也可指向同一服务。</p>
+          <div class="atm-mini"><span>WORLD</span><span>SIMULATION</span><span>IMAGE</span><span>VISION</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>决策职责</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>规则引擎筛出合法候选，AI 结合人格和记忆作价值判断，确定性执行器再次校验并更新世界。</p>
+          <div class="atm-mini"><span>规则筛选</span><span>AI 选择</span><span>Schema 参数</span><span>原子执行</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>结构化适配</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>按供应商能力使用 Structured Output、Tool Calling 或 JSON 提示词，最终通过统一 Schema 校验与修正。</p>
+          <div class="atm-mini"><span>能力探测</span><span>Schema 校验</span><span>引用校验</span><span>失败降级</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>最小相关上下文</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>行动、对话、计划、反思和世界生成使用不同模板；只发送角色实际已知且与任务相关的信息。</p>
+          <div class="atm-mini"><span>无上帝视角</span><span>相关记忆</span><span>候选动作</span><span>Token 预算</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">非阻塞 AI 调用链</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">模型请求<br>决策 ID + 世界版本</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>正常响应：结构校验通过后进入确定性执行器</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>格式错误：携带校验错误自动修正一次</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>超时 / 可重试错误：短暂重试一次，再进入规则 / Mock 决策</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>迟到响应：版本已过期则直接丢弃，不能覆盖新世界状态</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-boundary"><b>AI 可观察性</b><div>普通界面展示触发原因、决策来源和简短理由；开发者检查器展示模型角色、决策 ID、世界版本、实际上下文、候选动作、结构化输出、校验与降级过程、延迟、Token、估算成本以及最终状态变化。API Key 永不记录或展示。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="pages">
+      <div class="atm-section-title">第七段 · 产品页面与信息架构 · 已确认</div>
+      <div class="atm-layers">
+        <div class="atm-layer"><div class="atm-layer-label">首页 / 世界库</div><div class="atm-layer-items"><span>继续上次世界</span><span>一句话创建</span><span>无密钥示例</span><span>生成中任务</span><span>复制 / 导出 / 删除</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">世界创建</div><div class="atm-layer-items"><span>一句话主输入</span><span>高级选项</span><span>人口建议</span><span>视觉风格</span><span>分阶段进度</span><span>单阶段重试 / 降级</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">运行主界面</div><div class="atm-layer-items"><span>地图主导</span><span>时间与暂停</span><span>观察 / 控制</span><span>玩家状态</span><span>紧凑事件流</span><span>可展开侧栏</span></div></div>
+      </div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>NPC 侧边面板</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>摘要页快速说明角色正在做什么；状态、计划、关系、记忆和决策分层展开，开发者检查器独立进入。</p>
+          <div class="atm-mini"><span>摘要</span><span>状态</span><span>计划</span><span>关系</span><span>记忆</span><span>决策</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>对话呈现</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>地图气泡表现现场生命感，侧栏承载玩家对话和可见的完整记录；不在现场只能看到事件摘要。</p>
+          <div class="atm-mini"><span>短气泡</span><span>聊天侧栏</span><span>多人发言</span><span>可见性控制</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>事件编排</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>观察工具栏打开事件侧栏：模板 / 自由输入、AI 解析、地图影响预览、确认后写入并聚焦事件起点。</p>
+          <div class="atm-mini"><span>模板</span><span>自由文本</span><span>结构预览</span><span>地图高亮</span><span>确认提交</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>因果分析</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>主界面只保留紧凑事件流；大型视图组合时间线、因果关系图与节点详情，支持按角色、地点和来源筛选。</p>
+          <div class="atm-mini"><span>时间线</span><span>因果图</span><span>节点详情</span><span>反向追踪</span><span>筛选</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>视觉与设备</b><div>界面采用中性现代设计，由当前世界视觉规范提供少量主题色；地图与角色视觉始终占主导。桌面端提供全部功能，平板支持主要玩法，手机重点支持观察、NPC 信息、事件流、对话和暂停，复杂分析与开发者功能简化或只读。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="persistence">
+      <div class="atm-section-title">第八段 · 保存、恢复与时间线 · 已确认</div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">持久化主链路</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">世界初始配置<br>+ 不可变追加事件</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>每个有效动作和状态变化立即事务写入事件日志</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>按事件数量或小镇时间在后台生成完整快照</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>事件注入、世界扩建、手动保存、跳时前后额外创建里程碑快照</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>恢复时加载最近一致快照，并重放其后的已提交事件</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>幂等任务恢复</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>AI 决策、生成管线、移动等待和原子执行按任务类型分别恢复；复用已生成结果，旧世界版本响应禁止写入。</p>
+          <div class="atm-mini"><span>task_id</span><span>world_version</span><span>阶段状态</span><span>结果引用</span><span>安全重试</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>时间线分支</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>从历史节点继续时自动创建新 branch_id；原时间线保留，两者共享过去并独立演化未来。</p>
+          <div class="atm-mini"><span>共同历史</span><span>独立未来</span><span>分叉事件</span><span>单独恢复</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>可移植世界包</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>导出结构、蓝图、居民状态、时间线、事件、动作规则、任务元数据和资产清单；导入后创建独立副本。</p>
+          <div class="atm-mini"><span>Schema 版本</span><span>完整性校验</span><span>资产可选打包</span><span>无密钥可恢复</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>存储治理</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>普通自动快照滚动保留，里程碑长期保留；资产按内容哈希去重，分支删除后做安全引用清理。</p>
+          <div class="atm-mini"><span>滚动快照</span><span>永久里程碑</span><span>资产去重</span><span>引用回收</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>恢复成功标准</b><div>任何已向用户显示成功的动作都已持久化。服务被强制关闭后重新启动，不出现重复扣款、重复物品、重复事件、半生成地图或旧 AI 响应覆盖；恢复后的下一次行动既不重复也不丢失。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="quality">
+      <div class="atm-section-title">第九段 · Mock 降级、错误处理与测试 · 待最终确认</div>
+      <div class="atm-pitch">删除全部 API Key 后，用户仍能从首页进入示例、创建模板化世界、观察自主生活、移动对话、投入事件、查看因果链并保存恢复；降级模式始终明确标识。</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>完整本地管线</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>内置验证世界保证立即可玩；模板编排、基础美术、结构审查和规则模拟共同支撑无密钥创建流程。</p>
+          <div class="atm-mini"><span>内置世界</span><span>模板生成</span><span>基础素材</span><span>结构校验</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>人格化 Mock 决策</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>按需求、日程、目标、性格、偏好、关系、事件和成本计算效用，再使用世界种子加入小幅可复现扰动。</p>
+          <div class="atm-mini"><span>效用评分</span><span>人格权重</span><span>种子扰动</span><span>理由明细</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>本地对话</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>关键词意图、提及对象、相关记忆、人格、心情和关系共同选择回应模板；无法理解时诚实澄清。</p>
+          <div class="atm-mini"><span>意图识别</span><span>记忆检索</span><span>知识边界</span><span>写入记忆</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>AI 契约测试</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>默认测试完全离线；配置密钥后可选验证四类真实模型的连接、Schema、图像接口和错误分类。</p>
+          <div class="atm-mini"><span>默认无网络</span><span>固定夹具</span><span>可选 test:ai</span><span>不断言文案</span></div>
+        </article>
+      </div>
+      <div class="atm-layers" style="margin-top:18px">
+        <div class="atm-layer"><div class="atm-layer-label">单元测试</div><div class="atm-layer-items"><span>状态变化</span><span>效用评分</span><span>关系</span><span>记忆检索</span><span>动作校验</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">集成测试</div><div class="atm-layer-items"><span>多周期模拟</span><span>事件传播</span><span>AI 降级</span><span>保存恢复</span><span>时间线分支</span><span>故障注入</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">端到端冒烟</div><div class="atm-layer-items"><span>打开示例</span><span>查看 NPC</span><span>运行行动</span><span>对话</span><span>投放事件</span><span>刷新恢复</span></div></div>
+      </div>
+      <div class="atm-boundary"><b>局部错误与恢复</b><div>错误绑定到具体 NPC、对话、生成阶段、扩建、保存或恢复任务；提供用户可理解说明、重试 / 降级 / 取消、错误 ID 和开发者详情。局部故障不冻结整个世界，任何页面不得永久停留在加载状态。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="architecture">
+      <div class="atm-section-title">第十段 · 技术架构与项目现状 · 已确认</div>
+      <div class="atm-pitch">当前工作区只有一个尚无提交的空 Git 仓库，应用源码、README、环境变量示例和测试均未创建；现阶段唯一成型成果是需求决策图。已完整阅读 Generative Agents 与 WorldX 两份本地解析文档，作为设计参考而非待复制实现。</div>
+      <div class="atm-layers" style="margin-top:18px">
+        <div class="atm-layer"><div class="atm-layer-label">客户端</div><div class="atm-layer-items"><span>React</span><span>Phaser</span><span>TanStack Query</span><span>Zustand</span><span>网格 + A*</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">服务端</div><div class="atm-layer-items"><span>Node.js / TypeScript</span><span>Fastify</span><span>领域模块</span><span>REST 命令与查询</span><span>WebSocket 事件</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">数据与任务</div><div class="atm-layer-items"><span>SQLite + WAL</span><span>Drizzle ORM</span><span>Zod Schema</span><span>持久任务表</span><span>进程内 Worker</span><span>FTS5 记忆检索</span></div></div>
+      </div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>React / Phaser 边界</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>Phaser 负责地图、角色、寻路、碰撞、镜头和气泡锚点；React 负责页面、抽屉、对话、事件、因果分析和开发者工具。服务端世界状态是唯一权威。</p>
+          <div class="atm-mini"><span>受控状态桥</span><span>不双写权威状态</span><span>共享实时投影</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>实时与后台任务</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>REST 承载命令和查询，WebSocket 推送带世界版本的实时事件；SQLite 任务表保存租约、重试、阶段和结果引用，重启后继续执行。</p>
+          <div class="atm-mini"><span>断线补事件</span><span>版本校验</span><span>幂等恢复</span><span>JobQueue 接口</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>共享契约</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>pnpm workspace 组织 web、server 与 shared；Drizzle 管数据库迁移和事务，Zod 统一 API、WebSocket、动作和 AI 输出契约。</p>
+          <div class="atm-mini"><span>apps/web</span><span>apps/server</span><span>packages/shared</span><span>Repository 映射</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>AI 与记忆</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>四类模型角色经统一轻量 AIProvider 分别配置；记忆使用 FTS5，再结合新近度、重要度和相关度排序，Embedding 仅预留接口。</p>
+          <div class="atm-mini"><span>供应商可替换</span><span>每角色独立模型</span><span>无向量库依赖</span><span>Mock 降级</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>开发与部署</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>开发时 React 与 Fastify 分端口运行；生产时由单个 Fastify 服务托管静态前端、REST、WebSocket 和后台任务，数据库与资源目录持久化。</p>
+          <div class="atm-mini"><span>单一线上地址</span><span>Dockerfile</span><span>SQLite 持久卷</span><span>资源持久卷</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>简化账号登录</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>只做账号密码登录；初始化提供演示账号，后台脚本可创建账号，不开放注册。密码哈希保存，签名 HttpOnly Cookie 携带用户与过期信息。</p>
+          <div class="atm-mini"><span>无注册</span><span>无找回密码</span><span>无 OAuth</span><span>user_id 所有权校验</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>明确不纳入</b><div>不实现注册、邮箱验证、找回密码、OAuth、多设备会话管理、独立会话表、结构化日志平台或完整监控。参考文档中的“90/10 反脸谱化”与“戏剧性高光评分”也不进入正式需求；仅保留必要的运行时错误输出。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="scope">
+      <div class="atm-section-title">第十一段 · 2–3 天面试版本边界 · 已确认</div>
+      <div class="atm-pitch">采用核心纵向切片：先让一个世界从登录、创建或加载、自主生活、移动对话、事件介入、因果变化到保存恢复完整跑通；扩展能力按真实接口、稳定降级和后续预留分层实现。</div>
+      <div class="atm-layers">
+        <div class="atm-layer"><div class="atm-layer-label">L1 · 作业底线</div><div class="atm-layer-items"><span>2+ 地点</span><span>2+ 差异 NPC</span><span>查看 NPC</span><span>玩家对话</span><span>自主决策</span><span>后台 API</span><span>保存 / 恢复</span><span>真实 AI + 降级</span><span>自动化测试</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">L2 · 核心产品</div><div class="atm-layer-items"><span>持续实时世界</span><span>玩家居民 Agent</span><span>空间操控</span><span>周期 + 事件触发</span><span>玩家投放事件</span><span>NPC 相互交流</span><span>状态与关系变化</span><span>事件时间线</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">L3 · 差异亮点</div><div class="atm-layer-items"><span>一句话生成世界</span><span>AI 地图与角色美术</span><span>运行期动态扩建</span><span>蝴蝶效应可视化</span><span>决策原因可查看</span><span>影响链条可追踪</span><span>AI / Mock 来源透明</span></div></div>
+      </div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>双轨世界创建</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>经过验证的内置世界保证稳定演示；一句话生成世界结构、NPC 与规则。图像和视觉模型真实接通，失败时使用缓存或程序化资产。</p>
+          <div class="atm-mini"><span>内置世界</span><span>真实结构生成</span><span>预生成资产</span><span>无密钥降级</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>五名完整居民</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>默认运行 5 名具有完整人格、状态、计划、记忆、关系、决策和对话的居民；生成器、数据与调度面向约 20 名扩展。</p>
+          <div class="atm-mini"><span>同等能力</span><span>真实 AI 决策</span><span>真实 AI 对话</span><span>约 20 人扩展</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>全部可进入</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>生成世界的主要建筑均有可进入的程序化室内；两个核心室内提供重点美术与丰富物品交互，其余保持逻辑完整。</p>
+          <div class="atm-mini"><span>入口连接</span><span>碰撞网格</span><span>功能物品</span><span>2 个重点室内</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>可验证因果与恢复</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>追加事件与快照支持刷新恢复和基础分支；事件至少传播两级，每个节点保存父事件、决策依据与状态变化。</p>
+          <div class="atm-mini"><span>事件溯源</span><span>里程碑快照</span><span>基础分支</span><span>反向追因</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>AI 调试工作台</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>检查与临时编辑上下文和 Prompt，沙盒重放一次决策，并排比较两个模型或 AI/Mock；结果默认不写回世界。</p>
+          <div class="atm-mini"><span>输入输出</span><span>临时编辑</span><span>沙盒重放</span><span>双模型比较</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>六个核心路由</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>登录、首页/世界库、创建世界、小镇主界面、因果分析和 AI 调试工作台；NPC、对话、事件与设置使用抽屉。</p>
+          <div class="atm-mini"><span>基础 CI</span><span>离线测试</span><span>生产构建</span><span>手动 AI 契约测试</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>面试版不要求做到</b><div>20 名居民同时稳定运行、每个室内独立 AI 美术、运行期真实扩建、平行世界自动对照、完整存储治理和完整 LLMOps 平台。首版仍保留相应数据结构或接口，不把这些能力伪装为已经完成。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="delivery">
+      <div class="atm-section-title">第十二段 · 面试交付设计 · 已确认</div>
+      <div class="atm-pitch">交付目标不是只让项目“在作者电脑上能跑”，而是让面试官能够快速启动、在线体验、验证真实 AI 与 Mock、看懂个人决策，并通过提交历史和测试复核工程过程。</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>两层文档</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>README 提供快速启动、演示账号、主流程和关键 API 示例；technical-design.md 解释架构、数据、AI/Mock、取舍和 AI 修改案例。</p>
+          <div class="atm-mini"><span>5 分钟启动</span><span>技术方案</span><span>OpenAPI</span><span>主流程示例</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>双启动与在线体验</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>Docker 提供一键体验，pnpm 提供本地开发；公开 HTTPS 地址覆盖投递和面试周期，并注明账号、有效期与冷启动。</p>
+          <div class="atm-mini"><span>Docker</span><span>pnpm dev</span><span>自动迁移</span><span>种子世界</span><span>视频兜底</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>五分钟演示</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>依次展示自主行动、决策依据、玩家对话、事件因果、Mock 降级、刷新恢复与 AI 调试工作台。</p>
+          <div class="atm-mini"><span>边操作边讲</span><span>3–5 分钟要求</span><span>稳定主线</span><span>不依赖现场绘图</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>现场改码与 AI 案例</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>现场以“新增动作工具”贯通全栈；文档以 AI 初版物品转交存在事务风险、人工修正并补测试作为协作案例。</p>
+          <div class="atm-mini"><span>共享 Schema</span><span>执行器</span><span>Mock</span><span>UI</span><span>事务与幂等</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>可审计开发过程</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>技术文档保留精简决策账本；Git 按可运行里程碑提交，说明 AI 参与、个人判断、验证与推翻过程。</p>
+          <div class="atm-mini"><span>个人决策</span><span>AI 参与</span><span>代码引用</span><span>测试引用</span><span>里程碑提交</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>额度与交付验收</h3><span class="atm-tag fixed">已确定</span></div>
+          <p>演示账号真实 AI 调用有限额，超额自动 Mock；pnpm verify 检查密钥、质量、测试、构建、迁移与种子冒烟。</p>
+          <div class="atm-mini"><span>真实 AI 限额</span><span>结果缓存</span><span>自动 Mock</span><span>pnpm verify</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>交付兜底链</b><div>公开地址不可用时，README 仍可通过 Docker 或 pnpm 启动；外部 AI 不可用时自动进入 Mock；图像生成过慢时使用缓存或程序化资产；所有路径均由同一份人工演示脚本复核。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="demo-world">
+      <div class="atm-section-title">第十三段 · 内置演示世界 · 已敲定</div>
+      <div class="atm-pitch">现代滨河社区“栖溪镇”，周末河岸市集正在筹备。居民各自照常生活，却通过社交、健康、物资、移动和信息五类节点彼此相连；共同背景提供相遇机会，但不规定故事结果。</div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>林夏 · 31</h3><span class="atm-tag fixed">咖啡馆主理人</span></div>
+          <p>外向热心、责任感强，压力大时会过度控制。上次活动因准备不足取消，她想证明自己可靠，也需要市集收入缓解经营压力。</p>
+          <div class="atm-mini"><span>重视承诺</span><span>喜欢清单与早晨</span><span>厌恶临时失约</span><span>市集协办</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>沈知衡 · 36</h3><span class="atm-tag fixed">社区医生</span></div>
+          <p>理性谨慎、情绪克制，重视证据与健康风险；不擅长公开表达关心，却会在真正需要时主动承担责任。</p>
+          <div class="atm-mini"><span>隐性共情</span><span>喜欢安静与晨跑</span><span>厌恶未经证实的消息</span><span>急救摊负责人</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>何建国 · 55</h3><span class="atm-tag fixed">杂货店老板</span></div>
+          <p>务实节俭、看重互惠与可兑现的承诺，对浪费和赊欠敏感。嘴上谨慎保守，但会默默照顾熟客。</p>
+          <div class="atm-mini"><span>库存敏感</span><span>喜欢象棋和准时</span><span>厌恶浪费</span><span>市集物资供应</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>周放 · 27</h3><span class="atm-tag fixed">社区配送员</span></div>
+          <p>灵活乐观、行动优先，珍视自由和义气；经济压力让他偶尔冒险接单。他每天穿行各处，是移动资源与非正式消息的连接点。</p>
+          <div class="atm-mini"><span>路线熟悉</span><span>喜欢音乐与捷径</span><span>厌恶繁琐手续</span><span>配送市集物资</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>唐雨澄 · 26</h3><span class="atm-tag fixed">社区记者</span></div>
+          <p>观察敏锐、有公共责任感，也渴望做出有影响力的报道；会追问细节，但担心自己把不确定信息放大成事实。</p>
+          <div class="atm-mini"><span>信息核验</span><span>喜欢河岸摄影</span><span>厌恶敷衍和封锁消息</span><span>市集专题报道</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>空间骨架</h3><span class="atm-tag fixed">可完整生活</span></div>
+          <p>河岸广场、栖岸咖啡馆、安宁诊所、老何杂货铺、社区中心、栖溪公寓与滨河步道构成室外和室内网络。</p>
+          <div class="atm-mini"><span>咖啡馆重点室内</span><span>诊所重点室内</span><span>其他室内程序化</span><span>桥梁与道路</span></div>
+        </article>
+      </div>
+      <div class="atm-ripple">
+        <div class="atm-ripple-head">推荐演示事件 · 暴雨预警</div>
+        <div class="atm-ripple-body">
+          <div class="atm-seed">周六 08:40<br>气象台发布暴雨预警<br>河岸场地可能临时封闭</div>
+          <div class="atm-chain">
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>唐雨澄先核验信息，再决定是否向社区传播，形成可见的信息链</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>沈知衡评估安全风险，可能建议把急救点和部分活动移入社区中心</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>林夏在“坚持原计划、缩减规模、寻找室内替代”之间结合压力与记忆决策</span></div>
+            <div class="atm-chain-row"><span class="atm-chain-node"></span><span>何建国调整备货或赊账态度，周放重新安排配送路线，继续产生资源与关系变化</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="atm-boundary"><b>关系初态与演示时间</b><div>林夏与沈知衡长期互信；何建国因上次活动取消而降低对林夏的信任，却仍提供有限赊账；周放欠杂货铺小额货款并信任曾帮助他的沈知衡；唐雨澄上次如实报道活动取消，与林夏保持礼貌但紧张。世界从周六 08:20 开始，市集计划 10:00 开放，既有日常行动时间，也适合在五分钟演示中注入事件并跳至关键节点。</div></div>
+    </div>
+
+    <div class="atm-view is-active" data-panel="progress">
+      <div class="atm-section-title">第十四段 · 三天实现路线图 · M4-1 玩家移动已完成</div>
+      <div class="atm-pitch">Day 1、领域持久化地基和真实 AI/Mock 决策已经完成；WorldX 只读审阅后落地了原创像素地图与蓝图权威的视觉编排切片。当前返回 P0 主流程，开发玩家居民、A* 移动与对话。</div>
+      <div class="atm-layers">
+        <div class="atm-layer"><div class="atm-layer-label">Day 1 · 完成</div><div class="atm-layer-items"><span>pnpm Monorepo</span><span>账号登录</span><span>内置栖溪镇</span><span>5 名 Mock NPC</span><span>Phaser 地图</span><span>WebSocket</span><span>SQLite 恢复</span><span>NPC 信息抽屉</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">Day 2 · 进行中</div><div class="atm-layer-items"><span>真实 AI 决策 ✓</span><span>玩家实体 ✓</span><span>A* 移动 ✓</span><span>真实 / Mock 对话开发中</span><span>事件注入</span><span>因果链</span><span>基础分支</span></div></div>
+        <div class="atm-layer"><div class="atm-layer-label">Day 3 · 部分提前</div><div class="atm-layer-items"><span>像素地图 ✓</span><span>蓝图 / 风格锁 ✓</span><span>视觉降级编排 ✓</span><span>一句话生成</span><span>AI 调试台</span><span>CI / Docker</span><span>部署</span></div></div>
+      </div>
+      <div class="atm-grid">
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>服务端骨架</h3><span class="atm-tag fixed">已实现</span></div>
+          <p>Fastify、SQLite/WAL、Drizzle、共享 Zod Schema、签名 HttpOnly Cookie、用户世界所有权校验与事务化模拟推进。</p>
+          <div class="atm-mini"><span>状态唯一权威</span><span>每 Tick 持久化</span><span>刷新恢复</span><span>暂停 / 继续</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>可解释 Mock 自治</h3><span class="atm-tag fixed">已实现</span></div>
+          <p>居民依据需求、时段、性格特质和固定种子扰动选择行动；理由、得分、位置与状态变化写入事件并实时推送。</p>
+          <div class="atm-mini"><span>5 名差异居民</span><span>自主循环</span><span>状态变化</span><span>行动理由</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>React + Phaser 体验</h3><span class="atm-tag fixed">已实现</span></div>
+          <p>登录、世界库与小镇路由已经连通；Phaser 渲染地图和居民移动，React 展示实时事件与居民状态抽屉。</p>
+          <div class="atm-mini"><span>TanStack Query</span><span>Zustand 投影</span><span>断线重连</span><span>事件去重</span></div>
+        </article>
+        <article class="atm-card">
+          <div class="atm-card-top"><h3>验证与提交</h3><span class="atm-tag fixed">持续更新</span></div>
+          <p>M3 已通过真实 HTTP/Mock 故障路径和 Ego Lite 验收；视觉切片通过 20 项离线测试与真实地图点击验收。当前 M4 移动切片完成后再次执行全量检查。</p>
+          <div class="atm-mini"><span>branch: codex/day-1-vertical-slice</span><span>M3: 9d32762</span><span>视觉: 89d0bae</span></div>
+        </article>
+      </div>
+      <div class="atm-boundary"><b>当前真实边界</b><div>SIMULATION 真实 AI 决策、玩家持久化与服务端权威 A* 已完成；IMAGE/VISION 目前只有编排契约、原创预生成图和程序化降级，尚未接真实 HTTP Provider。自动接近、对话、事件介入、因果链和分支操作仍未完成。</div></div>
+    </div>
+
+    <div class="atm-view" data-panel="decisions">
+      <div class="atm-section-title">完整对话决策记录 · 按确认顺序</div>
+      <div class="atm-decision-wrap">
+        <table class="atm-decision-table">
+          <thead><tr><th>编号</th><th>议题</th><th>已确认结论</th><th>边界 / 成功标准</th></tr></thead>
+          <tbody>
+            <tr><td>D01</td><td>产品主次</td><td>A“自主生活观察”是必须实现的基架；C“玩家作为居民参与”也是正式需求；B“蝴蝶效应”作为亮点扩展并预留入口。</td><td>先证明小镇本身会生活，再证明玩家能进入，最后放大连锁影响。</td></tr>
+            <tr><td>D02</td><td>玩家形态</td><td>三种能力全部保留：默认全局观察、玩家作为居民 Agent 实例、玩家在地图中的空间操控。</td><td>移动、触碰、寻路与交互距离留到地图阶段细化。</td></tr>
+            <tr><td>D03</td><td>世界节奏</td><td>默认持续实时运行；玩家不操作时，世界和居民也持续演化。</td><td>不是点击“下一回合”才运行的回合制模拟器。</td></tr>
+            <tr><td>D04</td><td>中途介入</td><td>玩家可以在运行中移动、对话或插入世界事件；这些行为立即成为新的世界事实。</td><td>相关居民必须在后续感知中读到变化并调整行为。</td></tr>
+            <tr><td>D05</td><td>运行控制</td><td>仅做暂停 / 继续；不做速度切换，也不做单步推进。</td><td>暂停后世界时间与居民动作停止，继续后保持一致地恢复。</td></tr>
+            <tr><td>D06</td><td>决策触发</td><td>采用周期运行 + 事件触发：平时周期性自主生活，重要事件使相关居民提前决策。</td><td>避免同一居民被周期和事件重复触发。</td></tr>
+            <tr><td>D07</td><td>生活驱动</td><td>采用日程基线 + 状态需求 + 事件响应。</td><td>正常时有稳定生活轨迹，状态或事件变化时能合理偏离日程。</td></tr>
+            <tr><td>D08</td><td>居民状态</td><td>采用深度模型：稳定身份、动态身体与情绪、资源能力、社会关系、认知状态。</td><td>包括性格偏好；实际展示的字段必须真正影响行为。</td></tr>
+            <tr><td>D09</td><td>人格表达</td><td>自然语言人设 + 数值性格特质 + 喜好、厌恶和价值观标签。</td><td>真实 AI 与 Mock 降级共享同一个人物模型，并保持可辨识差异。</td></tr>
+            <tr><td>D10</td><td>居民规模</td><td>首版先完成 5 名完整 NPC，后续扩展到约 20 名。</td><td>数据结构、界面与调度不能写死为只有 5 人。</td></tr>
+            <tr><td>D11</td><td>运行精度</td><td>约 20 名居民全部保持完整能力，不区分核心居民和低精度背景居民。</td><td>每个人都有完整人格、状态、关系、记忆、规划、决策和对话。</td></tr>
+            <tr><td>D12</td><td>AI 调度</td><td>先按需判断是否需要重新规划；公共事件统一理解一次，再由相关居民独立决策并受控并发。</td><td>共享事实一致，人格与记忆隔离；单个居民失败不拖垮整轮。</td></tr>
+            <tr><td>D13</td><td>记忆基础</td><td>短期事件 + 长期摘要 + 对每名居民的关系印象。</td><td>旧经历要能持续影响后续行为，而不只是复述最近日志。</td></tr>
+            <tr><td>D14</td><td>认知扩展</td><td>记忆按近期性、重要性和情境相关性检索；高重要经历积累后形成简短反思。</td><td>首版不要求复杂知识图谱或完整向量记忆平台。</td></tr>
+            <tr><td>D15</td><td>规划层级</td><td>长期目标 → 每日计划 → 当前具体动作；不同强度事件影响不同规划层。</td><td>小事件不应轻易改变长期人生目标。</td></tr>
+            <tr><td>D16</td><td>动作系统</td><td>AI 开放推理，但最终必须调用可扩展动作工具；后端验证并执行真实状态变化。</td><td>AI 与 Mock 共用动作注册表，禁止只用文字声称“已经行动”。</td></tr>
+            <tr><td>D17</td><td>NPC 对话</td><td>分级模拟：普通闲聊生成结果摘要；重要事件、冲突或秘密进行有限 2–4 轮交流。</td><td>现场可展示完整对话；不在现场只显示摘要；双方形成各自主观记忆。</td></tr>
+            <tr><td>D18</td><td>玩家身份</td><td>创建一个新的独立玩家居民，并提供默认角色快速进入。</td><td>与 NPC 共用居民数据模型，仅 controller 为 human。</td></tr>
+            <tr><td>D19</td><td>观察切换</td><td>全局观察只切换镜头；玩家居民留在原地，不消失，也不自动托管。</td><td>切换视角不能改变位置、关系、状态和记忆。</td></tr>
+            <tr><td>D20</td><td>地图移动</td><td>采用点击地图寻路，玩家与 NPC 共用位置和路径系统。</td><td>角色不能穿过障碍；可达目标必须稳定抵达。</td></tr>
+            <tr><td>D21</td><td>接近交互</td><td>远程可查看资料；执行现场动作时自动寻路接近 NPC，抵达合法距离后显示动作。</td><td>处理目标移动和路径不可达，不允许远程执行现场行为。</td></tr>
+            <tr><td>D22</td><td>玩家动作</td><td>首版实现自由对话和至少 3 类情境动作；复用 NPC 动作工具。</td><td>自然语言复合指令预留接口，不作为首版完整能力。</td></tr>
+            <tr><td>D23</td><td>事件注入</td><td>支持事件模板和自由文本；AI 先解析为结构化预览，玩家确认后才写入世界。</td><td>不支持的部分必须明确标出，不能静默忽略。</td></tr>
+            <tr><td>D24</td><td>信息可见性</td><td>按事件类型传播；区分客观事实、居民掌握的信息和居民的主观理解。</td><td>居民只能依据自己实际获得的信息决策，同一事件可形成不同版本。</td></tr>
+            <tr><td>D25</td><td>蝴蝶效应</td><td>首版实现带父事件和决策依据的因果链；平行世界只预留快照与分支标识。</td><td>最终变化可以反向追踪到玩家事件或其他初始原因。</td></tr>
+            <tr><td>D26</td><td>实时对话</td><td>世界继续运行，但锁定对话参与者；紧急事件可以打断。</td><td>其他居民持续生活，交谈双方不能同时执行冲突动作。</td></tr>
+            <tr><td>D27</td><td>地图结构</td><td>连续俯视室外地图与独立建筑室内场景同时需要。</td><td>玩家和 NPC 使用统一跨场景导航，不以地点瞬移代替移动。</td></tr>
+            <tr><td>D28</td><td>室内范围</td><td>主要建筑全部可进入，不只制作一两个样板室内。</td><td>不同建筑可复用生成模板，但每个实例有独立物品、入口和归属。</td></tr>
+            <tr><td>D29</td><td>动态生成范围</td><td>结构生成、AI 地图与角色美术、运行中继续扩建三层全部需要。</td><td>此前“固定 7 类地点”的方案已撤回；世界内容由提示词和规则动态产生。</td></tr>
+            <tr><td>D30</td><td>扩建发起</td><td>玩家和 NPC 都能提出扩建；先生成提案预览，经玩家确认后写入世界，并可开启自动批准。</td><td>每次扩建保留发起者、原因、预览、确认和生成结果。</td></tr>
+            <tr><td>D31</td><td>地图生成</td><td>结构蓝图与视觉识别结合：蓝图定义权威空间，图像模型生成美术，视觉模型识别后与蓝图校验。</td><td>地图必须通过关键地点可达性与自动寻路测试。</td></tr>
+            <tr><td>D32</td><td>审查失败</td><td>严格以蓝图为准，自动重绘；超过重试上限后使用程序化基础素材。</td><td>错误美术不能反向破坏碰撞、入口和连接逻辑。</td></tr>
+            <tr><td>D33</td><td>视觉风格</td><td>每个世界生成并锁定独立视觉规范，后续新增地图和角色必须复用。</td><td>支持提示词和预设风格，但必须转化为清晰可玩的统一视角。</td></tr>
+            <tr><td>D34</td><td>动态人口</td><td>系统按世界规模、地点和职业建议人口，玩家生成前可修改；首版默认 5，目标约 20。</td><td>人物作为完整社会关系群体生成，每个重要地点有人使用。</td></tr>
+            <tr><td>D35</td><td>生活能力</td><td>不用固定地点名称，而用能力标签校验进食、休息、工作、社交、安全、健康和公共信息传播。</td><td>每项核心需求在任意世界中至少有一种合法满足方式。</td></tr>
+            <tr><td>D36</td><td>地图扩张</td><td>优先填充现有空地，必要时生成相邻新区；室内独立扩展。</td><td>新旧区域道路连通、全局可达，原有世界状态不得被覆盖。</td></tr>
+            <tr><td>D37</td><td>时间比例</td><td>采用固定加速小镇时钟，暂定现实 2 秒等于小镇 1 分钟、一天约 48 分钟；比例可配置。</td><td>运行中不提供速度切换，日程、动作和事件共用统一时钟。</td></tr>
+            <tr><td>D38</td><td>跳过时间</td><td>支持跳到当前动作结束和下一重要事件；后台快速但完整地执行期间模拟。</td><td>紧急事件提前停止，结束后展示期间变化摘要。</td></tr>
+            <tr><td>D39</td><td>状态表达</td><td>后台保存 0–100 精确数值，普通 UI 显示分级自然语言，调试面板显示精确值。</td><td>UI、AI 提示词与 Mock 规则使用一致的等级含义。</td></tr>
+            <tr><td>D40</td><td>状态字段</td><td>健康、饥饿、精力、心情、压力和社交需求为核心；世界可以生成扩展状态。</td><td>扩展状态必须具备变化来源、消耗来源、阈值与行为影响。</td></tr>
+            <tr><td>D41</td><td>多维关系</td><td>有方向地记录熟悉度、好感、信任、尊重、关系标签和共同经历，并补充自然语言长期摘要。</td><td>不同维度分别影响交流、秘密分享、合作和冲突等决策。</td></tr>
+            <tr><td>D42</td><td>经济闭环</td><td>工作收入、购买交换、真实库存、补货、物品消耗和转交构成轻量闭环。</td><td>金钱与物品变化有来源和去向；动态价格与生产配方只预留字段。</td></tr>
+            <tr><td>D43</td><td>动态动作</td><td>稳定动作原语通过配置组合成世界专属动作，AI 不生成任意执行代码。</td><td>每个动作都可校验、保存、回放并由 Mock 执行。</td></tr>
+            <tr><td>D44</td><td>资源并发</td><td>采用意图校验、到场后的短期预约与原子执行；失败或超时释放资源。</td><td>禁止重复购买、负库存和多人占用唯一对象。</td></tr>
+            <tr><td>D45</td><td>极端后果</td><td>默认触发强制行为与能力限制；特定世界可配置昏迷、失业、破产或死亡等严重后果。</td><td>居民不能无视危险状态继续普通日程；严重后果必须处理社会与资源影响。</td></tr>
+            <tr><td>D46</td><td>模型角色</td><td>完整实现世界编排、运行模拟、图像生成和视觉审查四类独立模型配置。</td><td>更换或缺失某一模型角色时不影响其他模块；暂不做动态模型路由。</td></tr>
+            <tr><td>D47</td><td>AI 与规则</td><td>规则筛选合法候选，AI 结合人格、目标、记忆和关系选择，确定性执行器更新状态。</td><td>AI 不能执行非法动作或直接任意修改数值。</td></tr>
+            <tr><td>D48</td><td>结构化输出</td><td>统一适配 Structured Output、Tool Calling 和普通 Chat JSON，经过 Schema、枚举和引用校验。</td><td>无效输出修正一次，仍失败则降级；禁止部分写入世界。</td></tr>
+            <tr><td>D49</td><td>上下文构建</td><td>按行动、对话、计划、反思和生成任务构建最小相关上下文并设置独立 Token 预算。</td><td>居民不能获得未感知的信息；开发者可查看本次实际上下文。</td></tr>
+            <tr><td>D50</td><td>失败降级</td><td>AI 超时或失败不阻塞世界；重试后使用相同动作 Schema 的规则 / Mock 决策器。</td><td>请求携带决策 ID 与世界版本，迟到旧响应直接丢弃。</td></tr>
+            <tr><td>D51</td><td>AI 检查器</td><td>普通界面显示决策摘要，开发者面板展示输入、候选、输出、校验、降级、延迟、Token、成本和状态变化。</td><td>任意一次行动都可解释；密钥和敏感配置永不展示。</td></tr>
+            <tr><td>D52</td><td>主页面布局</td><td>采用地图主导 + 可展开侧边面板；世界创建、完整因果分析和开发者检查器使用独立页面或大型覆盖层。</td><td>关闭面板后可完整观察小镇，打开面板时地图仍保留足够区域。</td></tr>
+            <tr><td>D53</td><td>创建页面</td><td>一句话输入为主，可展开人口、风格、后果、审批、模式和随机种子等高级选项。</td><td>展示真实分阶段生成进度；失败阶段可单独重试或降级。</td></tr>
+            <tr><td>D54</td><td>NPC 面板</td><td>默认摘要，进一步分为状态、计划、关系、记忆和决策；完整 AI 检查器独立进入。</td><td>普通用户能快速理解当前行为，面试官能逐层验证系统。</td></tr>
+            <tr><td>D55</td><td>事件与因果</td><td>地图保留紧凑事件流，复杂事件进入含时间线、因果图和节点详情的大型分析视图。</td><td>支持从最终结果反向追踪初始原因，并按居民、地点、类型和来源筛选。</td></tr>
+            <tr><td>D56</td><td>对话界面</td><td>NPC 闲聊显示地图短气泡；玩家和可见完整对话进入侧栏，不在现场只显示摘要。</td><td>对话内容严格遵守玩家在场和知情规则。</td></tr>
+            <tr><td>D57</td><td>事件入口</td><td>观察工具栏打开事件编排侧栏，经模板 / 自由输入、AI 解析、地图高亮与确认后写入世界。</td><td>确认前不得修改世界；提交后事件流立即出现起点。</td></tr>
+            <tr><td>D58</td><td>应用首页</td><td>提供继续上次世界、一句话创建、内置示例和完整世界库。</td><td>面试官一次点击进入无密钥可玩世界，同时支持多个世界与生成任务管理。</td></tr>
+            <tr><td>D59</td><td>设备范围</td><td>桌面完整、平板主要功能、手机以观察、NPC、事件、对话和暂停为主，复杂工具简化或只读。</td><td>手机分享链接可体验，但不要求复杂功能完全对等。</td></tr>
+            <tr><td>D60</td><td>界面风格</td><td>稳定的中性现代 UI，使用世界风格规范的少量主题色；普通面板生活化，开发者工具技术化。</td><td>不同生成世界中保持清晰一致，同时让地图视觉主导体验。</td></tr>
+            <tr><td>D61</td><td>持久化模型</td><td>完整世界快照与不可变追加事件日志结合；恢复时加载最近快照并重放后续事件。</td><td>兼顾恢复速度、完整历史、因果链、回放与分支。</td></tr>
+            <tr><td>D62</td><td>自动保存</td><td>每次有效变化立即写事件；周期、手动保存、事件注入、扩建和跳时等节点生成快照。</td><td>任何已显示成功的动作都已持久化，快照生成不阻塞实时世界。</td></tr>
+            <tr><td>D63</td><td>任务恢复</td><td>按移动、AI、生成与原子执行等任务类型分类恢复，使用任务 ID、世界版本、阶段和结果引用保证幂等。</td><td>重启后无重复调用、重复状态变化或半生成内容。</td></tr>
+            <tr><td>D64</td><td>时间线分支</td><td>从历史节点继续时自动创建新 branch_id，原时间线保持不变。</td><td>分支共享过去并独立演化未来，任何分支均可单独恢复。</td></tr>
+            <tr><td>D65</td><td>导入导出</td><td>支持包含世界配置、状态、时间线、事件、规则、任务与资产清单的可移植世界包。</td><td>另一台机器无原数据库也能导入继续；无密钥时可进入 Mock 模式。</td></tr>
+            <tr><td>D66</td><td>存储清理</td><td>滚动保留自动快照、长期保留里程碑、资产按哈希去重、删除分支后清理无引用内容。</td><td>自动清理不得破坏仍可访问的时间线或共享资产。</td></tr>
+            <tr><td>D67</td><td>无密钥体验</td><td>同时提供验证过的内置世界与完整本地 Mock 管线，创建、模拟、对话、事件、因果和恢复均可体验。</td><td>固定随机种子可复现，界面明确显示 AI 或 Mock 来源。</td></tr>
+            <tr><td>D68</td><td>Mock 决策</td><td>使用可解释效用评分，并用世界种子加入小幅、可复现的随机扰动。</td><td>人格差异稳定，同一状态与种子产生相同结果。</td></tr>
+            <tr><td>D69</td><td>Mock 对话</td><td>本地解析意图与对象，检索角色已知记忆，结合人格、心情和关系生成模板回复并写入记忆。</td><td>不能回答未知事实，无法理解时符合人设地请求澄清。</td></tr>
+            <tr><td>D70</td><td>测试范围</td><td>单元测试、确定性模拟与 API 集成测试、单条端到端主流程冒烟，同时覆盖关键故障注入。</td><td>无网络、固定种子下稳定通过，主流程可一条命令运行。</td></tr>
+            <tr><td>D71</td><td>真实 AI 测试</td><td>默认测试全部离线；另提供手动或定时触发的四类模型契约测试。</td><td>无 Key 可通过完整默认测试；真实测试只验证连接、Schema 和接口契约。</td></tr>
+            <tr><td>D72</td><td>错误体验</td><td>错误绑定具体对象并提供说明、重试、降级、取消、错误 ID 与开发者详情；世界尽可能继续运行。</td><td>任何错误不导致 UI 永久加载，用户始终知道世界是否安全保存。</td></tr>
+            <tr><td>D73</td><td>全栈语言</td><td>前端 React + Phaser，后端 Node.js / TypeScript，并共享 Schema 与类型。</td><td>减少上下文切换，前后端契约可复用，便于面试现场修改。</td></tr>
+            <tr><td>D74</td><td>渲染边界</td><td>Phaser 负责世界场景与空间交互，React 负责产品页面和业务面板，通过受控状态桥连接。</td><td>Phaser 不持有权威业务状态，完整世界状态以服务端为准。</td></tr>
+            <tr><td>D75</td><td>后端框架</td><td>使用 Fastify，并按 World、Simulation、Agent、Generation、Timeline、AI、Asset 划分领域模块。</td><td>保留清晰模块边界，不引入重量级微服务。</td></tr>
+            <tr><td>D76</td><td>主数据库</td><td>使用 SQLite + WAL；生成资产保存在文件系统或对象存储，通过引用入库，并抽象 Repository。</td><td>本地零数据库配置，同时为未来替换服务型数据库保留边界。</td></tr>
+            <tr><td>D77</td><td>客户端通信</td><td>REST 承载命令和查询，WebSocket 推送实时世界事件；事件携带 event_id、world_id、branch_id 与 world_version。</td><td>断线后按游标补发缺口，缺口过大则下发新快照。</td></tr>
+            <tr><td>D78</td><td>任务队列</td><td>SQLite 持久任务表 + 进程内 Worker，记录状态、租约、重试、进度和幂等信息，并提供 JobQueue 接口。</td><td>进程重启后任务可恢复；未来可替换 BullMQ 而不改领域调用方。</td></tr>
+            <tr><td>D79</td><td>数据契约</td><td>Drizzle 负责数据库 Schema、迁移和事务；Zod 负责领域、API、WebSocket、动作与 AI 输出校验。</td><td>Repository 将数据库记录映射为领域对象，避免 ORM 结构泄露到接口层。</td></tr>
+            <tr><td>D80</td><td>前端状态</td><td>TanStack Query 管服务端查询与缓存，Zustand 管 WebSocket 实时投影和轻量 UI 状态。</td><td>完整详情按需查询，客户端不复制一套完整世界权威状态。</td></tr>
+            <tr><td>D81</td><td>工程目录</td><td>采用 pnpm workspace 轻量 Monorepo：apps/web、apps/server、packages/shared，暂不引入 Turborepo。</td><td>共享契约并保持构建链简单，适合 2–3 天实现和现场改码。</td></tr>
+            <tr><td>D82</td><td>地图寻路</td><td>权威逻辑地图使用网格与 A*；AI 图片仅作为视觉层，并为未来 NavMesh 预留接口。</td><td>动态生成和扩建后仍可确定性校验碰撞、入口与全局可达性。</td></tr>
+            <tr><td>D83</td><td>记忆检索</td><td>SQLite FTS5 配合新近度、重要度与相关度综合评分；Embedding 检索只预留接口。</td><td>MVP 不部署向量数据库，仍能解释每条记忆被召回的原因。</td></tr>
+            <tr><td>D84</td><td>模型适配</td><td>使用统一轻量 AIProvider，四类模型角色分别配置 baseURL、apiKey 和 model，优先兼容 OpenAI 风格接口。</td><td>供应商可混用；密钥不入库，缺失或失败时切换 Mock。</td></tr>
+            <tr><td>D85</td><td>参考边界</td><td>Generative Agents 与 WorldX 文档用于校准设计，但 90/10 反脸谱化与戏剧性高光评分不纳入正式需求。</td><td>不因参考项目继续扩大面试版本范围。</td></tr>
+            <tr><td>D86</td><td>部署形态</td><td>开发时前后端分端口；生产时由单个 Fastify 服务托管 React 静态文件、REST、WebSocket 与后台任务。</td><td>线上仅一个访问地址；SQLite 与生成资产使用持久目录，并提供 Dockerfile。</td></tr>
+            <tr><td>D87</td><td>账号范围</td><td>仅实现账号密码登录，不做注册、邮箱验证、找回密码、OAuth 或账号绑定。</td><td>世界、时间线与任务绑定 user_id，服务端强制进行所有权校验。</td></tr>
+            <tr><td>D88</td><td>账号来源</td><td>初始化数据提供演示账号，后台脚本可以创建账号，不开放用户自行注册。</td><td>面试官可直接登录，同时避免公开注册带来的额外治理工作。</td></tr>
+            <tr><td>D89</td><td>登录状态</td><td>密码哈希保存；登录后使用签名 HttpOnly Cookie 保存用户 ID 与过期时间，不建立独立会话表。</td><td>实现简单且可跨服务重启；不支持单次会话撤销和多设备管理。</td></tr>
+            <tr><td>D90</td><td>日志范围</td><td>结构化日志与完整监控平台不纳入需求，只保留必要的运行时与错误输出。</td><td>不单独建设可观测性系统，AI 检查器仍负责展示产品内 AI 决策信息。</td></tr>
+            <tr><td>D91</td><td>实现策略</td><td>面试版本以核心纵向切片为优先，其他能力围绕主流程分级实现。</td><td>首先保证 README 可跑通和端到端主流程稳定，而不是堆积浅层功能。</td></tr>
+            <tr><td>D92</td><td>创建双轨</td><td>内置世界保证稳定演示；一句话真实生成结构、NPC 和规则，图像失败时使用程序化或预生成资产。</td><td>运行期扩建只保留接口与入口，不作为面试版稳定验收能力。</td></tr>
+            <tr><td>D93</td><td>面试人口</td><td>默认运行 5 名完整居民，所有居民能力相同；数据、生成器和调度面向约 20 名扩展。</td><td>不以 20 名居民同时稳定运行作为首版验收条件。</td></tr>
+            <tr><td>D94</td><td>室内深度</td><td>所有主要建筑均生成可进入的程序化室内；两个核心室内具备重点美术和更丰富交互。</td><td>其余室内仍需具备入口、碰撞、移动、功能标签和基础交互。</td></tr>
+            <tr><td>D95</td><td>真实 AI 深度</td><td>世界结构、NPC 决策和对话完整调用真实 AI；图像生成与视觉审查接通真实接口但允许缓存和降级。</td><td>现场演示不能因绘图耗时或外部接口失败而阻塞。</td></tr>
+            <tr><td>D96</td><td>面试持久化</td><td>实现追加事件、周期与里程碑快照、刷新恢复和基础历史分支；世界包导入导出做到最小可用。</td><td>复杂快照治理、资产回收和精细任务恢复不作为首版验收条件。</td></tr>
+            <tr><td>D97</td><td>面试因果链</td><td>玩家事件触发 NPC 感知、决策、行动和至少一级后续事件，节点保存父事件、依据和状态变化。</td><td>可从最终结果反向追踪初始事件；平行对照只保留 branch_id 与接口。</td></tr>
+            <tr><td>D98</td><td>调试工作台</td><td>实现上下文与 Prompt 检查、临时编辑、沙盒重放和双模型或 AI/Mock 比较。</td><td>重放默认不写回真实世界；不建设数据集、审批、批量评测等完整 LLMOps。</td></tr>
+            <tr><td>D99</td><td>基础 CI</td><td>GitHub Actions 自动执行 lint、类型检查、离线测试与生产构建，真实 AI 契约测试手动触发。</td><td>默认 CI 不需要密钥、不访问模型服务，也不产生 AI 调用费用。</td></tr>
+            <tr><td>D100</td><td>核心路由</td><td>登录、首页/世界库、创建世界、小镇主界面、因果分析、AI 调试工作台共六个核心路由。</td><td>NPC、对话、事件注入和设置收进主界面抽屉，不继续拆分后台页面。</td></tr>
+            <tr><td>D101</td><td>文档组织</td><td>README 聚焦快速启动和体验，docs/technical-design.md 记录完整技术方案与设计取舍。</td><td>面试官可在 5 分钟内跑通，同时有独立材料深入评审。</td></tr>
+            <tr><td>D102</td><td>启动方式</td><td>同时提供 Docker 一键体验和 pnpm 本地开发，两者自动完成迁移、演示账号和内置世界初始化。</td><td>Docker 保证环境一致，pnpm 支持现场修改和热更新。</td></tr>
+            <tr><td>D103</td><td>线上地址</td><td>公开 HTTPS 地址覆盖完整投递与面试周期，README 标注演示账号、有效期和冷启动提示。</td><td>本地启动与录制视频作为双重替代方式。</td></tr>
+            <tr><td>D104</td><td>演示视频</td><td>制作约 5 分钟视频，覆盖自主行动、决策依据、对话、事件因果、Mock、恢复和调试工作台。</td><td>边操作边讲解，保持一条连续且可复现的演示主线。</td></tr>
+            <tr><td>D105</td><td>现场改码</td><td>预留“新增动作工具”案例，贯通共享 Schema、合法性校验、执行器、Mock、UI 与测试。</td><td>修改范围可控、效果可见，并能证明模块边界与全栈能力。</td></tr>
+            <tr><td>D106</td><td>AI 修改案例</td><td>记录 AI 初版物品转交逻辑的事务与幂等风险，以及人工校验、修正和补测试过程。</td><td>突出候选人对 AI 代码进行工程审查，而不是直接接受生成结果。</td></tr>
+            <tr><td>D107</td><td>个人决策账本</td><td>按需求、架构、算法、实现与测试记录 AI 的参与方式、个人取舍、验证和推翻，并引用代码与测试。</td><td>保持精简，不公开无关的完整 Prompt 或对话原文。</td></tr>
+            <tr><td>D108</td><td>提交历史</td><td>Git 按项目骨架、模拟、交互、AI/Mock、恢复、调试、测试与交付等可运行里程碑提交。</td><td>关键提交尽量保持可构建，避免一次性提交或碎片噪声。</td></tr>
+            <tr><td>D109</td><td>接口文档</td><td>从 Fastify 路由 Schema 自动生成 OpenAPI，README 只保留登录与核心主流程调用示例。</td><td>接口定义以代码为源，避免手写文档与实现漂移。</td></tr>
+            <tr><td>D110</td><td>线上 AI 额度</td><td>演示账号按能力限制真实 AI 调用次数，额度耗尽后自动 Mock，并复用安全缓存结果。</td><td>面试官仍可验证真实接入，同时控制费用和公开滥用。</td></tr>
+            <tr><td>D111</td><td>交付检查</td><td>pnpm verify 自动执行密钥检查、lint、类型检查、离线测试、构建、迁移与种子冒烟，再人工走完整演示。</td><td>以新环境和无密钥模式验证可交付性，不依赖作者机器的隐含状态。</td></tr>
+            <tr><td>D112</td><td>演示世界</td><td>内置世界采用现代滨河社区“栖溪镇”。</td><td>现实日常语境无需额外解释，面试官可立即判断居民行为是否合理。</td></tr>
+            <tr><td>D113</td><td>共同背景</td><td>周末河岸市集正在筹备，作为居民相遇和资源流动的共同背景，但不预设剧情结果。</td><td>平时仍有各自工作、休息和社交，不让所有行动只围绕市集。</td></tr>
+            <tr><td>D114</td><td>关系结构</td><td>5 名居民形成松散熟人网络，以社交、健康、物资、移动与信息节点互相连接。</td><td>每人拥有独立目标，已有关系中同时存在信任、欠款、互助和轻微矛盾。</td></tr>
+            <tr><td>D115</td><td>职业组合</td><td>咖啡馆经营者兼协办人、社区医生、杂货店老板、配送员和社区记者。</td><td>五种角色共同支持经济、健康、信息传播和空间移动的可见闭环。</td></tr>
+            <tr><td>D116</td><td>林夏</td><td>31 岁，外向热心、责任感强，压力下过度控制；筹办市集是为弥补上次失误并缓解经营压力。</td><td>重视承诺，喜欢计划和早晨，厌恶临时失约。</td></tr>
+            <tr><td>D117</td><td>沈知衡</td><td>36 岁，理性谨慎、隐性共情，重视证据、健康与风险，真正需要时会主动承担。</td><td>面对流言先核验，负责市集急救点，与林夏长期互信。</td></tr>
+            <tr><td>D118</td><td>何建国</td><td>55 岁，务实节俭、看重互惠与兑现，对浪费和赊欠敏感，嘴硬但会照顾熟客。</td><td>负责物资供应，因上次活动取消对林夏信任下降。</td></tr>
+            <tr><td>D119</td><td>周放</td><td>27 岁，灵活乐观、行动优先，珍视自由与义气，经济压力下偶尔冒险接单。</td><td>熟悉全镇路线，承担配送并连接非正式信息；欠杂货铺小额货款。</td></tr>
+            <tr><td>D120</td><td>唐雨澄</td><td>26 岁，观察敏锐、有公共责任感并渴望影响力，追问细节但警惕放大不确定信息。</td><td>上次如实报道活动取消，与林夏保持礼貌但紧张。</td></tr>
+            <tr><td>D121</td><td>演示地点</td><td>河岸广场、咖啡馆、诊所、杂货铺、社区中心、公寓和滨河步道构成场景网络。</td><td>咖啡馆和诊所为重点室内，其余主要建筑仍可进入并具备基础功能。</td></tr>
+            <tr><td>D122</td><td>演示事件</td><td>推荐注入“气象台发布暴雨预警，河岸场地可能封闭”，触发核验、风险评估、计划调整、库存与配送变化。</td><td>系统只注入事实和影响范围，不写死每名居民的反应结果。</td></tr>
+            <tr><td>D123</td><td>初始时间</td><td>世界从周六 08:20 开始，市集计划 10:00 开放，演示事件建议在 08:40 注入。</td><td>五分钟内可观察日常、介入事件并通过跳时抵达关键变化。</td></tr>
+            <tr><td>D124</td><td>内容边界</td><td>角色人设和关系是初始条件，不提供固定剧情脚本；行动仍由规则候选、状态、记忆和 AI/Mock 决策产生。</td><td>相同事件允许因状态、随机种子和模型选择形成不同但可解释的结果。</td></tr>
+            <tr><td>D125</td><td>开发时长</td><td>实现路线图按 3 个完整开发日规划。</td><td>前两天形成核心纵向切片，第三天完成高级能力与交付。</td></tr>
+            <tr><td>D126</td><td>开发顺序</td><td>采用行走骨架优先，而非后端优先或前端优先。</td><td>每天结束都有可运行、可测试和可提交的端到端版本。</td></tr>
+            <tr><td>D127</td><td>三天分配</td><td>第一天离线骨架；第二天真实 AI、玩家交互和因果；第三天生成、调试工作台和完整交付。</td><td>按可演示能力分天，不按技术层割裂实现。</td></tr>
+            <tr><td>D128</td><td>第一天门槛</td><td>无密钥也能登录、进入内置世界、观察 5 名 Mock NPC 自主行动、实时更新并刷新恢复。</td><td>必须形成完整离线纵向切片，而非只有页面或地图。</td></tr>
+            <tr><td>D129</td><td>WorldX 参考</td><td>只用于检查现有规划是否遗漏，不 Fork、不选择性复用，也不加入对照发现的额外功能。</td><td>保持当前项目范围与个人实现边界清晰。</td></tr>
+            <tr><td>D130</td><td>第一天实装</td><td>Day 1 功能已完成，pnpm verify 通过类型检查、5 项离线测试和构建，并经浏览器验证后提交 3127c01。</td><td>分支为 codex/day-1-vertical-slice；临时运行数据库已移出项目，首次启动恢复 08:20 种子状态。</td></tr>
+            <tr><td>D131</td><td>视觉切片实装</td><td>只读审阅 WorldX 的提示词与编排后，独立实现 Blueprint 权威、像素风格锁、IMAGE/VISION 审查契约、失败重试与预生成/程序化降级。</td><td>不复制其提示词、代码或资产；栖溪镇地图和居民视觉为原创实现，提交 89d0bae。</td></tr>
+            <tr><td>D132</td><td>当前开发顺序</td><td>视觉亮点切片完成后返回 M4：玩家实体 → 权威网格与 A* → 点击移动 → 自动接近 → 真实/Mock 对话。</td><td>玩家对话属于作业底线与不可裁范围，优先级高于继续完善图像 Provider。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="atm-view" data-panel="questions">
+      <div class="atm-section-title">接下来按顺序共同决定</div>
+      <div class="atm-question-grid">
+        <article class="atm-question"><div class="atm-qnum">NEXT 01</div><h3>M4 玩家交互</h3><p>完成玩家 A* 移动与刷新恢复，然后实现自动接近、真实 / Mock 对话、参与者锁和记忆写入。</p></article>
+        <article class="atm-question"><div class="atm-qnum">LATER 01</div><h3>内容与平衡调优</h3><p>具体动作数值、阈值和时间比例通过实际试玩校准。</p></article>
+        <article class="atm-question"><div class="atm-qnum">LATER 02</div><h3>动态模型路由</h3><p>根据任务复杂度与预算自动选择模型，首版只预留接口。</p></article>
+        <article class="atm-question"><div class="atm-qnum">LATER 03</div><h3>完整移动端</h3><p>复杂因果分析、开发者检查器和世界生成编辑的手机端完整体验。</p></article>
+      </div>
+    </div>
+
+    <footer class="atm-footer">
+      <div class="atm-legend"><span class="l1">已确定</span><span class="l2">方向假设 / 待讨论</span></div>
+      <div>每轮对话更新 · 已完整收录 D01–D132</div>
+    </footer>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('ai-town-map');
+      const tabs = Array.from(root.querySelectorAll('.atm-tab'));
+      const panels = Array.from(root.querySelectorAll('.atm-view'));
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.view;
+          tabs.forEach((item) => item.setAttribute('aria-selected', String(item === tab)));
+          panels.forEach((panel) => panel.classList.toggle('is-active', panel.dataset.panel === target));
+        });
+      });
+    })();
+  </script>
+</div>
