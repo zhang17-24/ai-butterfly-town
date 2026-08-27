@@ -14,6 +14,8 @@ import { createSessionToken, SESSION_COOKIE, verifySessionToken } from "./auth/s
 import { WorldHub } from "./realtime/world-hub.js";
 import { SimulationService } from "./simulation/simulation-service.js";
 import { loadConfig, type AppConfig } from "./config.js";
+import { OpenAICompatibleProvider } from "./ai/provider.js";
+import { SimulationDecisionService } from "./ai/simulation-decider.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -45,9 +47,16 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
 
   const hub = new WorldHub(repository, config.cookieSecret);
   hub.attach(app.server);
-  const simulation = new SimulationService(repository, hub, config.tickMs);
+  const aiProvider = new OpenAICompatibleProvider(config.simulationAi);
+  const decider = new SimulationDecisionService(aiProvider);
+  const simulation = new SimulationService(repository, hub, config.tickMs, decider, config.simulationAi.maxDecisionsPerTick);
 
-  app.get("/api/health", async () => ({ status: "ok", mode: "mock", project: "ai-butterfly-town" }));
+  app.get("/api/health", async () => ({
+    status: "ok",
+    mode: aiProvider.enabled ? "ai-with-mock-fallback" : "mock",
+    simulationModel: aiProvider.enabled ? aiProvider.model : null,
+    project: "ai-butterfly-town",
+  }));
 
   app.post("/api/auth/login", async (request, reply) => {
     const parsed = LoginSchema.safeParse(request.body);
@@ -87,6 +96,15 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     const state = repository.getWorldState(request.userId!, request.params.worldId);
     return state ?? reply.code(404).send({ error: "世界不存在" });
   });
+  app.get<{ Params: { worldId: string; agentId: string }; Querystring: { limit?: string } }>(
+    "/api/worlds/:worldId/agents/:agentId/decisions",
+    { preHandler: requireUser },
+    async (request, reply) => {
+      const limit = Number(request.query.limit ?? 10);
+      const traces = repository.listAiTraces(request.userId!, request.params.worldId, request.params.agentId, Number.isFinite(limit) ? limit : 10);
+      return traces ?? reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    },
+  );
   app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/pause", { preHandler: requireUser }, async (request, reply) => {
     const parsed = PauseSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_COMMAND", message: "暂停命令格式不正确", recoverable: true, details: {} } });
@@ -141,5 +159,5 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
 
   await app.ready();
   simulation.start();
-  return { app, config, repository, simulation };
+  return { app, config, repository, simulation, aiProvider };
 }

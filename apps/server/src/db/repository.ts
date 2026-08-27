@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
-import type { Npc, NpcProfile, NpcState, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
-import { NpcProfileSchema, NpcStateSchema } from "@ai-town/shared";
+import type { AiTrace, Npc, NpcProfile, NpcState, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, NpcProfileSchema, NpcStateSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { commandReceipts, events, npcs, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, events, npcs, snapshots, users, worldBranches, worlds } from "./schema.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
 
 export const eventSourceValues = ["system", "player", "ai", "mock"] as const;
@@ -139,7 +139,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     };
   }
 
-  commitTick(worldId: string, expectedVersion: number, gameMinute: number, updatedNpcs: Npc[], newEvents: PendingWorldEvent[]): { world: WorldSummary; events: TownEvent[] } | null {
+  commitTick(worldId: string, expectedVersion: number, gameMinute: number, updatedNpcs: Npc[], newEvents: PendingWorldEvent[], newTraces: AiTrace[] = []): { world: WorldSummary; events: TownEvent[] } | null {
     const now = new Date().toISOString();
     return this.handle.sqlite.transaction(() => {
       const current = this.handle.db.select().from(worlds).where(eq(worlds.id, worldId)).get();
@@ -175,6 +175,18 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
           schemaVersion: event.schemaVersion,
           payloadJson: JSON.stringify(event.payload),
           createdAt: event.createdAt,
+        }).run();
+      }
+      for (const trace of newTraces) {
+        this.handle.db.insert(aiTraces).values({
+          id: trace.id,
+          worldId: trace.worldId,
+          branchId: trace.branchId,
+          agentId: trace.agentId,
+          role: trace.role,
+          status: trace.status,
+          traceJson: JSON.stringify(trace),
+          createdAt: trace.createdAt,
         }).run();
       }
       this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
@@ -253,6 +265,15 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
 
   getSnapshotCount(worldId: string): number {
     return this.handle.db.select().from(snapshots).where(eq(snapshots.worldId, worldId)).all().length;
+  }
+
+  listAiTraces(userId: string, worldId: string, agentId: string, limit = 10): AiTrace[] | null {
+    if (!this.ownsWorld(userId, worldId)) return null;
+    return this.handle.db.select().from(aiTraces).where(and(
+      eq(aiTraces.worldId, worldId),
+      eq(aiTraces.agentId, agentId),
+    )).orderBy(desc(aiTraces.createdAt)).limit(Math.max(1, Math.min(50, limit))).all()
+      .map((row) => AiTraceSchema.parse(JSON.parse(row.traceJson)));
   }
 
   private toEvent(row: typeof events.$inferSelect): TownEvent {

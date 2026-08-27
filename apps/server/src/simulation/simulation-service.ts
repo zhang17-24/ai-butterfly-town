@@ -1,14 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { Npc, RealtimeMessage } from "@ai-town/shared";
+import type { AiTrace, Npc, NpcState, RealtimeMessage } from "@ai-town/shared";
 import type { PendingWorldEvent, TownRepository } from "../db/repository.js";
 import type { WorldHub } from "../realtime/world-hub.js";
-import { applyActionEffects, applyPassiveMinute, chooseMockAction } from "../domain/mock-decision.js";
+import { applyActionEffects, applyPassiveMinute } from "../domain/mock-decision.js";
+import type { SimulationDecisionService } from "../ai/simulation-decider.js";
 
 export class SimulationService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private aiCursor = 0;
 
-  constructor(private repository: TownRepository, private hub: WorldHub, private tickMs: number) {}
+  constructor(
+    private repository: TownRepository,
+    private hub: WorldHub,
+    private tickMs: number,
+    private decider: SimulationDecisionService,
+    private maxAiDecisionsPerTick: number,
+  ) {}
 
   start(): void {
     if (this.timer) return;
@@ -25,23 +33,27 @@ export class SimulationService {
     if (this.running) return;
     this.running = true;
     try {
-      for (const worldId of this.repository.listActiveWorldIds()) this.tickWorld(worldId);
+      for (const worldId of this.repository.listActiveWorldIds()) await this.tickWorld(worldId);
     } finally {
       this.running = false;
     }
   }
 
-  private tickWorld(worldId: string): void {
+  private async tickWorld(worldId: string): Promise<void> {
     const snapshot = this.repository.getSimulationState(worldId);
     if (!snapshot || snapshot.world.paused) return;
     const gameMinute = snapshot.world.gameMinute + 1;
-    const version = snapshot.world.version + 1;
-    const pendingEvents: PendingWorldEvent[] = [];
-
-    const updatedNpcs = snapshot.npcs.map((npc): Npc => {
+    const dueNpcIds = snapshot.npcs.filter((npc) => npc.state.actionEndsAtMinute <= gameMinute).map((npc) => npc.profile.id);
+    const aiAllowed = new Set<string>();
+    const allowance = Math.min(Math.max(0, this.maxAiDecisionsPerTick), dueNpcIds.length);
+    for (let offset = 0; offset < allowance; offset += 1) aiAllowed.add(dueNpcIds[(this.aiCursor + offset) % dueNpcIds.length]);
+    if (dueNpcIds.length > 0) this.aiCursor = (this.aiCursor + allowance) % dueNpcIds.length;
+    const results = await Promise.all(snapshot.npcs.map(async (npc): Promise<{ npc: Npc; event: PendingWorldEvent | null; trace: AiTrace | null }> => {
       let state = applyPassiveMinute(npc.state);
       if (state.actionEndsAtMinute <= gameMinute) {
-        const action = chooseMockAction({ ...npc, state }, gameMinute, version);
+        const decision = await this.decider.decide({ ...npc, state }, snapshot.world, { allowAI: aiAllowed.has(npc.profile.id) });
+        const action = decision.action;
+        const beforeEffects = state;
         state = applyActionEffects(state, action);
         state = {
           ...state,
@@ -51,28 +63,34 @@ export class SimulationService {
           actionReason: action.reason,
           actionEndsAtMinute: gameMinute + action.durationMinutes,
         };
-        pendingEvents.push({
+        const trace: AiTrace = { ...decision.trace, stateChanges: stateChanges(beforeEffects, state) };
+        return { npc: { profile: npc.profile, state }, trace, event: {
           worldId,
           gameMinute,
           type: "npc.action_started",
           actorId: npc.profile.id,
           summary: `${npc.profile.name}${action.label}`,
-          source: "mock",
+          source: trace.source,
           causeIds: [],
           payload: {
+            actionId: action.id,
             action: action.label,
             reason: action.reason,
             locationId: action.destination.locationId,
             position: action.destination.position,
-            source: "mock",
+            source: trace.source,
+            decisionId: trace.id,
             score: Number(action.score.toFixed(2)),
           },
-        });
+        } };
       }
-      return { profile: npc.profile, state };
-    });
+      return { npc: { profile: npc.profile, state }, event: null, trace: null };
+    }));
+    const updatedNpcs = results.map((result) => result.npc);
+    const pendingEvents = results.flatMap((result) => result.event ? [result.event] : []);
+    const traces = results.flatMap((result) => result.trace ? [result.trace] : []);
 
-    const committed = this.repository.commitTick(worldId, snapshot.world.version, gameMinute, updatedNpcs, pendingEvents);
+    const committed = this.repository.commitTick(worldId, snapshot.world.version, gameMinute, updatedNpcs, pendingEvents, traces);
     if (!committed) return;
     this.hub.broadcast(worldId, {
       eventId: randomUUID(),
@@ -84,4 +102,12 @@ export class SimulationService {
       data: { worldId, gameMinute, version: committed.world.version, npcs: updatedNpcs, events: committed.events },
     } satisfies RealtimeMessage);
   }
+}
+
+function stateChanges(before: NpcState, after: NpcState): AiTrace["stateChanges"] {
+  const changes: AiTrace["stateChanges"] = {};
+  for (const key of ["hunger", "energy", "mood", "stress", "social"] as const) {
+    if (before[key] !== after[key]) changes[key] = { before: before[key], after: after[key] };
+  }
+  return changes;
 }

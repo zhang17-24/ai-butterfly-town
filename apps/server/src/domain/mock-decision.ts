@@ -10,6 +10,7 @@ const destinations = {
 } as const;
 
 export interface MockAction {
+  id: string;
   label: string;
   reason: string;
   durationMinutes: number;
@@ -28,6 +29,10 @@ function stableNoise(seed: string): number {
 }
 
 export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: number): MockAction {
+  return getActionCandidates(npc, gameMinute, worldVersion).sort((a, b) => b.score - a.score)[0];
+}
+
+export function getActionCandidates(npc: Npc, gameMinute: number, worldVersion: number): MockAction[] {
   const { profile, state } = npc;
   const hour = Math.floor(gameMinute / 60) % 24;
   const workDestination =
@@ -38,6 +43,7 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
 
   const candidates: MockAction[] = [
     {
+      id: "eat_breakfast",
       label: "去咖啡馆吃早餐",
       reason: `饥饿感已到 ${Math.round(state.hunger)}，需要先补充体力。`,
       durationMinutes: 4,
@@ -46,6 +52,7 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
       score: state.hunger * 1.35,
     },
     {
+      id: "rest_at_home",
       label: "回公寓休息",
       reason: `精力只剩 ${Math.round(state.energy)}，继续忙碌会影响状态。`,
       durationMinutes: 6,
@@ -54,6 +61,7 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
       score: (100 - state.energy) * 1.45,
     },
     {
+      id: "socialize_riverside",
       label: "到河岸和邻居聊聊",
       reason: `社交需求为 ${Math.round(state.social)}，也想了解市集近况。`,
       durationMinutes: 4,
@@ -62,6 +70,7 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
       score: state.social * (0.65 + profile.traits.sociability / 100),
     },
     {
+      id: "do_work",
       label: profile.id === "npc_zhou_fang" ? "配送市集物资" : "处理本职工作",
       reason: `责任感 ${profile.traits.conscientiousness}，当前时段适合推进工作。`,
       durationMinutes: 5,
@@ -70,6 +79,7 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
       score: profile.traits.conscientiousness + (hour >= 8 && hour < 18 ? 28 : -20),
     },
     {
+      id: "walk_riverside",
       label: "沿滨河步道散步",
       reason: `好奇心 ${profile.traits.curiosity}，想看看社区里正在发生什么。`,
       durationMinutes: 3,
@@ -79,12 +89,10 @@ export function chooseMockAction(npc: Npc, gameMinute: number, worldVersion: num
     },
   ];
 
-  return candidates
-    .map((candidate, index) => ({
+  return candidates.map((candidate, index) => ({
       ...candidate,
       score: candidate.score + stableNoise(`${profile.id}:${gameMinute}:${worldVersion}:${index}`) * 4,
-    }))
-    .sort((a, b) => b.score - a.score)[0];
+    }));
 }
 
 export function applyPassiveMinute(state: NpcState): NpcState {
@@ -106,4 +114,3 @@ export function applyActionEffects(state: NpcState, action: MockAction): NpcStat
   }
   return next;
 }
-

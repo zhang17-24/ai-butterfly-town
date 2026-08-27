@@ -1,4 +1,4 @@
-import { WorldStateSchema, WorldSummarySchema, type WorldState, type WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, WorldStateSchema, WorldSummarySchema, type AiTrace, type WorldState, type WorldSummary } from "@ai-town/shared";
 
 class ApiRequestError extends Error {
   constructor(message: string, readonly code: string | undefined, readonly details: Record<string, unknown> | undefined) {
@@ -32,6 +32,9 @@ export const api = {
   },
   async worldState(worldId: string): Promise<WorldState> {
     return WorldStateSchema.parse(await request<unknown>(`/worlds/${worldId}/state`));
+  },
+  async aiTraces(worldId: string, agentId: string): Promise<AiTrace[]> {
+    return AiTraceSchema.array().parse(await request<unknown>(`/worlds/${worldId}/agents/${agentId}/decisions?limit=8`));
   },
   async setPaused(worldId: string, paused: boolean, expectedVersion: number): Promise<WorldSummary> {
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/pause`, {

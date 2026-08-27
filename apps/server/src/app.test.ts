@@ -44,6 +44,10 @@ describe("day-one vertical slice", () => {
     expect(after.world.activeBranchId).toBe("branch_world_qixi_town_main");
     expect(after.recentEvents[0]).toMatchObject({ branchId: after.world.activeBranchId, source: "mock", schemaVersion: 1 });
     expect(built.repository.getSnapshotCount("world_qixi_town")).toBe(1);
+
+    const traces = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/agents/npc_lin_xia/decisions", headers: { cookie: cookie! } });
+    expect(traces.statusCode).toBe(200);
+    expect(traces.json()[0]).toMatchObject({ agentId: "npc_lin_xia", source: "mock", status: "fallback", fallbackReason: "AI_KEY_OR_MODEL_MISSING" });
   });
 
   it("rejects world access without a login cookie", async () => {

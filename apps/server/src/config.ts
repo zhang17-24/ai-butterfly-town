@@ -9,6 +9,16 @@ export interface AppConfig {
   demoPassword: string;
   tickMs: number;
   serveWeb: boolean;
+  simulationAi: {
+    apiKey: string;
+    baseUrl: string;
+    model: string;
+    apiStyle: "responses" | "chat";
+    timeoutMs: number;
+    maxOutputTokens: number;
+    maxConcurrency: number;
+    maxDecisionsPerTick: number;
+  };
 }
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -21,7 +31,16 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     demoPassword: process.env.DEMO_PASSWORD ?? "town1234",
     tickMs: Number(process.env.SIMULATION_TICK_MS ?? 2000),
     serveWeb: process.env.SERVE_WEB === "1",
+    simulationAi: {
+      apiKey: process.env.AI_SIMULATION_API_KEY ?? "",
+      baseUrl: process.env.AI_SIMULATION_BASE_URL ?? "https://api.openai.com/v1",
+      model: process.env.AI_SIMULATION_MODEL ?? "",
+      apiStyle: process.env.AI_SIMULATION_API_STYLE === "chat" ? "chat" : "responses",
+      timeoutMs: Number(process.env.AI_SIMULATION_TIMEOUT_MS ?? 2500),
+      maxOutputTokens: Number(process.env.AI_SIMULATION_MAX_OUTPUT_TOKENS ?? 180),
+      maxConcurrency: Number(process.env.AI_SIMULATION_MAX_CONCURRENCY ?? 2),
+      maxDecisionsPerTick: Number(process.env.AI_SIMULATION_MAX_DECISIONS_PER_TICK ?? 2),
+    },
     ...overrides,
   };
 }
-

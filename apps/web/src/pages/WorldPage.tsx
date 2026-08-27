@@ -22,6 +22,12 @@ export function WorldPage() {
   const { worldId = "" } = useParams();
   const store = useWorldStore();
   const initial = useQuery({ queryKey: ["world", worldId], queryFn: () => api.worldState(worldId), enabled: !!worldId });
+  const decisions = useQuery({
+    queryKey: ["decisions", worldId, store.selectedNpcId],
+    queryFn: () => api.aiTraces(worldId, store.selectedNpcId!),
+    enabled: Boolean(worldId && store.selectedNpcId),
+    refetchInterval: 3000,
+  });
   const pause = useMutation({ mutationFn: (paused: boolean) => api.setPaused(worldId, paused, store.world?.version ?? 0) });
 
   useEffect(() => {
@@ -80,7 +86,7 @@ export function WorldPage() {
       <header className="world-topbar">
         <div className="world-title"><Link to="/">←</Link><div><b>{store.world.name}</b><span>周末河岸市集筹备中</span></div></div>
         <div className="world-clock"><span className="clock-label">周六</span><strong>{formatTime(store.world.gameMinute)}</strong><span className={store.connected ? "live on" : "live"}>{store.connected ? "实时" : "重连中"}</span></div>
-        <div className="top-actions"><span className="mode-chip">规则 Mock</span><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button></div>
+        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button></div>
       </header>
 
       <section className="world-layout">
@@ -117,9 +123,37 @@ export function WorldPage() {
           </div>
           <div className="drawer-section"><h3>人物底色</h3><p className="persona-copy">{selected.profile.personality}</p><p className="persona-copy muted">{selected.profile.motivation}</p></div>
           <div className="tag-group">{selected.profile.preferences.map((tag) => <span key={tag}>喜欢 · {tag}</span>)}{selected.profile.dislikes.map((tag) => <span className="negative" key={tag}>回避 · {tag}</span>)}</div>
-          <div className="decision-note"><b>为什么是这个行动？</b><p>Mock 决策器综合需求、时段、性格和少量固定种子扰动选择；事件流保存了本次理由，刷新后仍可恢复。</p></div>
+          <DecisionPanel trace={decisions.data?.[0] ?? null} loading={decisions.isLoading} />
         </aside>
       </div>}
     </main>
   );
+}
+
+function DecisionPanel({ trace, loading }: { trace: Awaited<ReturnType<typeof api.aiTraces>>[number] | null; loading: boolean }) {
+  if (loading) return <div className="decision-note"><b>最近一次决策</b><p>正在读取可解释决策记录…</p></div>;
+  if (!trace) return <div className="decision-note"><b>最近一次决策</b><p>当前动作结束后会生成第一条 AI/Mock 决策记录。</p></div>;
+  return <div className="decision-note trace-card">
+    <div className="trace-heading"><b>最近一次决策</b><span className={trace.source === "ai" ? "trace-source ai" : "trace-source mock"}>{trace.source === "ai" ? "真实 AI" : "Mock 降级"}</span></div>
+    <p>{trace.finalReason}</p>
+    <dl>
+      <div><dt>模型</dt><dd>{trace.model}</dd></div>
+      <div><dt>耗时</dt><dd>{trace.latencyMs} ms</dd></div>
+      <div><dt>尝试</dt><dd>{trace.attempts} 次</dd></div>
+      <div><dt>候选</dt><dd>{trace.candidates.length} 个</dd></div>
+    </dl>
+    {trace.fallbackReason && <div className="fallback-reason">降级原因 · {humanizeFallback(trace.fallbackReason)}</div>}
+    <details><summary>查看候选与校验</summary>
+      <div className="candidate-list">{[...trace.candidates].sort((a, b) => b.score - a.score).map((candidate) => <div key={candidate.id} className={candidate.id === trace.finalActionId ? "chosen" : ""}><span>{candidate.label}</span><b>{candidate.score.toFixed(1)}</b></div>)}</div>
+      {trace.validationErrors.length > 0 && <ul>{trace.validationErrors.map((error, index) => <li key={`${error}-${index}`}>{error}</li>)}</ul>}
+    </details>
+  </div>;
+}
+
+function humanizeFallback(reason: string) {
+  if (reason === "AI_KEY_OR_MODEL_MISSING") return "未配置 Key 或模型，已使用可复现规则决策";
+  if (reason === "AI_TICK_BUDGET_EXHAUSTED") return "本轮 AI 调用预算已用完，已轮换到规则决策";
+  if (reason.includes("AI_TIMEOUT")) return "模型超时，重试后已使用规则决策";
+  if (reason.includes("UNKNOWN_ACTION")) return "模型引用了不存在的行动";
+  return "模型输出未通过校验，已使用规则决策";
 }

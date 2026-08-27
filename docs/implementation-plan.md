@@ -3,7 +3,7 @@
 > 规划状态：Draft for review  
 > 需求基线：**Living Requirement Map v1.3（D01–D124）**  
 > 执行原则：核心纵向切片优先，内置世界与动态生成双轨交付  
-> 当前节点：M2 已完成；下一里程碑为 M3 真实 AI 决策
+> 当前节点：M3 已完成；按最新决定优先推进视觉生成管线
 
 ## 1. 规划目标
 
@@ -120,9 +120,11 @@ flowchart LR
 
 `packages/shared/src`、`apps/server/src/db`、`apps/server/src/modules/world`、`apps/server/src/modules/timeline`、`apps/server/src/realtime`。
 
-## 7. M3：真实 AI 决策与可解释降级（Day 2，P0）
+## 7. M3：真实 AI 决策与可解释降级（Day 2，P0，已完成）
 
 **目的**：证明 NPC 不是固定脚本，并让真实 AI 进入受控的状态执行链。
+
+**完成证据**：Responses/Chat Provider、候选限制、结构化校验与修复、两次尝试、无 Key/超时/坏输出/调用预算降级、事务化 Trace、NPC 决策面板已经落地；17 个自动化测试与三轮 Ego Lite 场景回归通过。
 
 ### 任务顺序
 
@@ -422,4 +424,4 @@ docs: finalize demo guide and decision ledger
 
 ---
 
-M2 已完成。下一次开发从 **M3：真实 AI 决策与可解释降级** 开始，在现有版本化世界命令基础上接入受约束的真实 AI、校验修复、Trace 与 Mock 自动降级。
+M3 已完成。根据最新产品决定，下一步先审计 WorldX 的世界设计、地图、识图与角色精灵编排，提炼为我们自己的 **Blueprint 权威 + IMAGE 生成 + VISION 审查 + 程序化降级** 管线；不复制其实现，并继续保持栖溪镇的独立产品结构。

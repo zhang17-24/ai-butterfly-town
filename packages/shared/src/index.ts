@@ -33,6 +33,48 @@ export const ActionDefinitionSchema = z.object({
   parameterSchemaId: z.string(),
 });
 
+export const DecisionCandidateSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  score: z.number(),
+  reason: z.string(),
+  destinationId: z.string(),
+  durationMinutes: z.number().int().positive(),
+});
+
+export const DecisionOutputSchema = z.object({
+  actionId: z.string().min(1),
+  reason: z.string().min(1).max(240),
+});
+
+export const AiTraceSchema = z.object({
+  id: z.string(),
+  worldId: z.string(),
+  branchId: z.string(),
+  worldVersion: z.number().int().nonnegative(),
+  agentId: z.string(),
+  role: z.literal("SIMULATION"),
+  status: z.enum(["success", "fallback"]),
+  source: z.enum(["ai", "mock"]),
+  provider: z.string(),
+  model: z.string(),
+  context: z.record(z.string(), z.unknown()),
+  candidates: z.array(DecisionCandidateSchema),
+  rawOutput: z.unknown().nullable(),
+  validationErrors: z.array(z.string()),
+  fallbackReason: z.string().nullable(),
+  finalActionId: z.string(),
+  finalReason: z.string(),
+  latencyMs: z.number().nonnegative(),
+  attempts: z.number().int().positive(),
+  usage: z.object({
+    inputTokens: z.number().int().nonnegative().nullable(),
+    outputTokens: z.number().int().nonnegative().nullable(),
+  }),
+  stateChanges: z.record(z.string(), z.object({ before: z.number(), after: z.number() })),
+  createdAt: z.string(),
+});
+
 export const NpcProfileSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -165,6 +207,9 @@ export type Position = z.infer<typeof PositionSchema>;
 export type AppError = z.infer<typeof AppErrorSchema>;
 export type ActionIntent = z.infer<typeof ActionIntentSchema>;
 export type ActionDefinition = z.infer<typeof ActionDefinitionSchema>;
+export type DecisionCandidate = z.infer<typeof DecisionCandidateSchema>;
+export type DecisionOutput = z.infer<typeof DecisionOutputSchema>;
+export type AiTrace = z.infer<typeof AiTraceSchema>;
 export type NpcProfile = z.infer<typeof NpcProfileSchema>;
 export type NpcState = z.infer<typeof NpcStateSchema>;
 export type Npc = z.infer<typeof NpcSchema>;
