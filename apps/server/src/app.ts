@@ -1,0 +1,109 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import Fastify, { type FastifyRequest } from "fastify";
+import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
+import fastifyStatic from "@fastify/static";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { openDatabase } from "./db/database.js";
+import { TownRepository } from "./db/repository.js";
+import { createSessionToken, SESSION_COOKIE, verifySessionToken } from "./auth/session.js";
+import { WorldHub } from "./realtime/world-hub.js";
+import { SimulationService } from "./simulation/simulation-service.js";
+import { loadConfig, type AppConfig } from "./config.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    userId: string | null;
+  }
+}
+
+const LoginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
+
+export async function buildApp(overrides: Partial<AppConfig> = {}) {
+  const config = loadConfig(overrides);
+  const database = openDatabase(config.databasePath);
+  const repository = new TownRepository(database);
+  repository.seedDemo(config.demoUsername, bcrypt.hashSync(config.demoPassword, 10));
+
+  const app = Fastify({ logger: false });
+  await app.register(cors, { origin: config.webOrigin, credentials: true });
+  await app.register(cookie);
+
+  app.decorateRequest("userId", null);
+  app.addHook("preHandler", async (request) => {
+    request.userId = verifySessionToken(request.cookies[SESSION_COOKIE], config.cookieSecret);
+  });
+
+  const hub = new WorldHub(repository, config.cookieSecret);
+  hub.attach(app.server);
+  const simulation = new SimulationService(repository, hub, config.tickMs);
+
+  app.get("/api/health", async () => ({ status: "ok", mode: "mock", project: "ai-butterfly-town" }));
+
+  app.post("/api/auth/login", async (request, reply) => {
+    const parsed = LoginSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "请输入账号和密码" });
+    const user = repository.findUserByUsername(parsed.data.username);
+    if (!user || !bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
+      return reply.code(401).send({ error: "账号或密码错误" });
+    }
+    reply.setCookie(SESSION_COOKIE, createSessionToken(user.id, config.cookieSecret), {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    return { id: user.id, username: user.username };
+  });
+
+  app.post("/api/auth/logout", async (_request, reply) => {
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true };
+  });
+
+  app.get("/api/auth/me", async (request, reply) => {
+    if (!request.userId) return reply.code(401).send({ error: "未登录" });
+    const user = repository.findUserById(request.userId);
+    if (!user) return reply.code(401).send({ error: "登录已失效" });
+    return { id: user.id, username: user.username };
+  });
+
+  const requireUser = async (request: FastifyRequest, reply: import("fastify").FastifyReply) => {
+    if (!request.userId) return reply.code(401).send({ error: "请先登录" });
+  };
+
+  app.get("/api/worlds", { preHandler: requireUser }, async (request) => repository.listWorlds(request.userId!));
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/state", { preHandler: requireUser }, async (request, reply) => {
+    const state = repository.getWorldState(request.userId!, request.params.worldId);
+    return state ?? reply.code(404).send({ error: "世界不存在" });
+  });
+  app.post<{ Params: { worldId: string }; Body: { paused?: boolean } }>("/api/worlds/:worldId/pause", { preHandler: requireUser }, async (request, reply) => {
+    const world = repository.setPaused(request.userId!, request.params.worldId, request.body?.paused ?? true);
+    if (!world) return reply.code(404).send({ error: "世界不存在" });
+    hub.broadcast(world.id, { type: "world.status", data: world });
+    return world;
+  });
+
+  if (config.serveWeb) {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const webDist = path.resolve(here, "../../web/dist");
+    await app.register(fastifyStatic, { root: webDist });
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api/")) return reply.code(404).send({ error: "Not found" });
+      return reply.sendFile("index.html");
+    });
+  }
+
+  app.addHook("onClose", async () => {
+    simulation.stop();
+    hub.close();
+    database.close();
+  });
+
+  await app.ready();
+  simulation.start();
+  return { app, config, repository, simulation };
+}
