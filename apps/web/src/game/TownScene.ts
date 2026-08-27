@@ -95,17 +95,22 @@ export class TownScene extends Phaser.Scene {
   private moveNpc(marker: NpcMarker, npc: Npc): void {
     const path = npc.state.actionPath;
     const nowPathKey = path && path.length > 1 ? path.map((point) => `${point.x},${point.y}`).join("|") : null;
-    if (nowPathKey && nowPathKey !== marker.pathKey) {
+    if (nowPathKey && path && nowPathKey !== marker.pathKey) {
       marker.pathKey = nowPathKey;
       this.tweens.killTweensOf(marker);
-      this.animateNpcAlong(marker, path!, 0);
+      // 从 marker 实际位置续接,避免跳到路径起点造成瞬移
+      const start = { x: marker.x, y: marker.y };
+      const resume = Math.hypot(path[0].x - start.x, path[0].y - start.y) > 1 ? [start, ...path] : path;
+      this.animateNpcAlong(marker, resume, 0);
       return;
     }
-    if (!nowPathKey) marker.pathKey = null;
-    const distance = Phaser.Math.Distance.Between(marker.x, marker.y, npc.state.position.x, npc.state.position.y);
-    if (!nowPathKey && distance > 2) {
-      this.tweens.killTweensOf(marker);
-      this.tweens.add({ targets: marker, x: npc.state.position.x, y: npc.state.position.y, duration: 700, ease: "Sine.easeInOut" });
+    if (!nowPathKey) {
+      marker.pathKey = null;
+      const distance = Phaser.Math.Distance.Between(marker.x, marker.y, npc.state.position.x, npc.state.position.y);
+      if (distance > 2) {
+        this.tweens.killTweensOf(marker);
+        this.tweens.add({ targets: marker, x: npc.state.position.x, y: npc.state.position.y, duration: 700, ease: "Sine.easeInOut" });
+      }
     }
   }
 
@@ -113,7 +118,7 @@ export class TownScene extends Phaser.Scene {
     if (index >= path.length) return;
     const destination = path[index];
     const distance = Phaser.Math.Distance.Between(marker.x, marker.y, destination.x, destination.y);
-    this.setWalkAnimation(marker, destination.x - marker.x, destination.y - marker.y);
+    if (index === 0) this.showWalkDirection(marker, path);
     this.tweens.add({
       targets: marker,
       x: destination.x,
@@ -122,11 +127,33 @@ export class TownScene extends Phaser.Scene {
       ease: "Linear",
       onComplete: () => {
         if (index + 1 >= path.length) {
-          marker.pathKey = null;
           this.stopWalk(marker);
         } else this.animateNpcAlong(marker, path, index + 1);
       },
     });
+  }
+
+  private showWalkDirection(marker: NpcMarker, path: Position[]): void {
+    const dxTotal = path[path.length - 1].x - marker.x;
+    const dyTotal = path[path.length - 1].y - marker.y;
+    if (Math.abs(dxTotal) >= Math.abs(dyTotal)) {
+      this.showWalk(marker, dxTotal > 0 ? "right" : "left");
+    } else {
+      this.showWalk(marker, dyTotal > 0 ? "front" : "back");
+    }
+  }
+
+  private showWalk(marker: NpcMarker, base: "left" | "right" | "front" | "back"): void {
+    if (!marker.spriteKey || !(marker.avatar as unknown as { anims?: unknown }).anims) return;
+    const sprite = marker.avatar as unknown as Phaser.GameObjects.Sprite;
+    if (base === "left" || base === "right") {
+      sprite.anims.play(`${marker.spriteKey}-walk-left`, true);
+      sprite.setFlipX(base === "right");
+    } else if (base === "front") {
+      sprite.anims.play(`${marker.spriteKey}-walk-front`, true);
+    } else {
+      sprite.anims.play(`${marker.spriteKey}-walk-back`, true);
+    }
   }
 
   private createAvatar(id: string, clothingColor: string): { avatar: Phaser.GameObjects.GameObject; spriteKey: string | null } {
@@ -135,19 +162,6 @@ export class TownScene extends Phaser.Scene {
       return { avatar: sprite, spriteKey: `npc-${id}` };
     }
     return { avatar: this.createPixelAvatar(id, Phaser.Display.Color.HexStringToColor(clothingColor).color), spriteKey: null };
-  }
-
-  private setWalkAnimation(marker: { spriteKey: string | null; avatar: Phaser.GameObjects.GameObject } | null, dx: number, dy: number): void {
-    if (!marker?.spriteKey || !(marker.avatar as unknown as { anims?: unknown }).anims) return;
-    const sprite = marker.avatar as unknown as Phaser.GameObjects.Sprite;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      sprite.anims.play(`${marker.spriteKey}-walk-left`, true);
-      sprite.setFlipX(dx > 0);
-    } else if (dy > 0) {
-      sprite.anims.play(`${marker.spriteKey}-walk-front`, true);
-    } else {
-      sprite.anims.play(`${marker.spriteKey}-walk-back`, true);
-    }
   }
 
   private stopWalk(marker: { spriteKey: string | null; avatar: Phaser.GameObjects.GameObject } | null): void {
@@ -192,7 +206,9 @@ export class TownScene extends Phaser.Scene {
       );
     }
     this.tweens.killTweensOf(this.playerMarker);
-    const destinations = path.length > 1 ? path.slice(1) : [player.position];
+    const destinations = path.length > 1
+      ? [{ x: this.playerMarker.x, y: this.playerMarker.y }, ...path.slice(1)]
+      : [player.position];
     this.movePlayerAlong(destinations, 0);
   }
 
@@ -200,7 +216,13 @@ export class TownScene extends Phaser.Scene {
     if (!this.playerMarker || index >= path.length) return;
     const destination = path[index];
     const distance = Phaser.Math.Distance.Between(this.playerMarker.x, this.playerMarker.y, destination.x, destination.y);
-    this.setWalkAnimation(this.playerMarker, destination.x - this.playerMarker.x, destination.y - this.playerMarker.y);
+    if (index === 0) {
+      const end = path[path.length - 1];
+      const dxTotal = end.x - this.playerMarker.x;
+      const dyTotal = end.y - this.playerMarker.y;
+      if (Math.abs(dxTotal) >= Math.abs(dyTotal)) this.showWalkCursor(dxTotal > 0 ? "right" : "left");
+      else this.showWalkCursor(dyTotal > 0 ? "front" : "back");
+    }
     this.tweens.add({
       targets: this.playerMarker,
       x: destination.x,
@@ -212,6 +234,20 @@ export class TownScene extends Phaser.Scene {
         else this.movePlayerAlong(path, index + 1);
       },
     });
+  }
+
+  private showWalkCursor(base: "left" | "right" | "front" | "back"): void {
+    if (!this.playerMarker?.spriteKey || !(this.playerAvatar as unknown as { anims?: unknown }).anims) return;
+    const sprite = this.playerAvatar as unknown as Phaser.GameObjects.Sprite;
+    const prefix = this.playerMarker.spriteKey;
+    if (base === "left" || base === "right") {
+      sprite.anims.play(`${prefix}-walk-left`, true);
+      sprite.setFlipX(base === "right");
+    } else if (base === "front") {
+      sprite.anims.play(`${prefix}-walk-front`, true);
+    } else {
+      sprite.anims.play(`${prefix}-walk-back`, true);
+    }
   }
 
   private registerSpriteSheets(): void {
