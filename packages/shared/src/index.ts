@@ -402,4 +402,77 @@ export type WorldBranch = z.infer<typeof WorldBranchSchema>;
 export type SnapshotMetadata = z.infer<typeof SnapshotMetadataSchema>;
 export type RealtimeMessage = z.infer<typeof RealtimeMessageSchema>;
 
+export type EventAudience = z.infer<typeof EventAudienceSchema>;
+export type EventPreviewSpec = z.infer<typeof EventPreviewSpecSchema>;
+export type KnowledgeDiff = z.infer<typeof KnowledgeDiffSchema>;
+export type EventPreviewResult = z.infer<typeof EventPreviewResultSchema>;
+export type EventCommitInput = z.infer<typeof EventCommitInputSchema>;
+export type EventCommitResult = z.infer<typeof EventCommitResultSchema>;
+export type CausalGraph = z.infer<typeof CausalGraphSchema>;
+
+
 export { createNavigationGrid, type NavigationGrid } from "./navigation.js";
+
+export const EventAudienceSchema = z.enum(["public", "local", "private"]);
+export const EventPreviewSpecSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  summary: z.string().min(1).max(200),
+  fact: z.string().min(1).max(200),
+  locationId: z.string().nullable(),
+  involvedNpcIds: z.array(z.string()),
+  audience: EventAudienceSchema,
+  gameMinute: z.number().int().nullable(),
+  source: z.enum(["player", "system"]),
+});
+
+export const KnowledgeDiffSchema = z.object({
+  agentId: z.string(),
+  via: z.enum(["involved", "sight", "hearing", "public"]),
+  confidence: z.number(),
+  channelReason: z.string(),
+});
+
+export const EventPreviewResultSchema = z.object({
+  previewId: z.string(),
+  preview: EventPreviewSpecSchema,
+  confidence: z.number(),
+  matchedTerms: z.object({
+    type: z.string().optional(),
+    locationId: z.string().optional(),
+    minute: z.number().optional(),
+    audience: EventAudienceSchema.optional(),
+  }),
+  spread: z.array(KnowledgeDiffSchema),
+  affectedNpcCount: z.number().int(),
+});
+
+export const EventCommitInputSchema = z.object({
+  preview: EventPreviewSpecSchema,
+  expectedVersion: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(8).max(128),
+});
+
+export const EventCommitResultSchema = z.object({
+  event: TownEventSchema,
+  world: WorldSummarySchema,
+  affectedNpcs: z.array(z.object({
+    agentId: z.string(),
+    knowledgeId: z.string(),
+    via: z.string(),
+    confidence: z.number(),
+  })),
+  replayed: z.boolean(),
+});
+
+export const CausalEdgeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  relation: z.string(),
+});
+
+export const CausalGraphSchema = z.object({
+  worldId: z.string(),
+  events: z.array(TownEventSchema),
+  edges: z.array(CausalEdgeSchema),
+});

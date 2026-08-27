@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DialogueEndResult, DialogueStartResult, Npc, Player, PlayerMoveResult, Position, RealtimeMessage, TownEvent, WorldSummary } from "@ai-town/shared";
+import type { DialogueEndResult, DialogueStartResult, EventCommitResult, Npc, Player, PlayerMoveResult, Position, RealtimeMessage, TownEvent, WorldSummary } from "@ai-town/shared";
 
 interface WorldStore {
   world: WorldSummary | null;
@@ -13,6 +13,7 @@ interface WorldStore {
   setSelectedNpc(id: string | null): void;
   applyPlayerMove(result: PlayerMoveResult): void;
   applyDialogueStart(result: DialogueStartResult): void;
+  applyEvent(result: EventCommitResult): void;
   applyDialogueEnd(result: DialogueEndResult): void;
   applyMessage(message: RealtimeMessage): void;
 }
@@ -43,6 +44,10 @@ export const useWorldStore = create<WorldStore>((set) => ({
   applyDialogueEnd: (result) => set((state) => ({
     world: result.world,
     npcs: state.npcs.map((npc) => npc.profile.id === result.npc.profile.id ? result.npc : npc),
+    events: dedupeEvents([...state.events, result.event]).slice(-40),
+  })),
+  applyEvent: (result) => set((state) => ({
+    world: result.world,
     events: dedupeEvents([...state.events, result.event]).slice(-40),
   })),
   applyMessage: (message) => set((state) => {

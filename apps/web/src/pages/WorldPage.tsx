@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { RealtimeMessageSchema, type DialogueSession } from "@ai-town/shared";
+import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec } from "@ai-town/shared";
 import { api } from "../services/api";
+import { gameEvents } from "../game/event-bus";
 import { useWorldStore } from "../state/world-store";
 import { TownCanvas } from "../game/TownCanvas";
-import { gameEvents } from "../game/event-bus";
 
 function formatTime(minutes: number) {
   const hour = Math.floor(minutes / 60) % 24;
@@ -25,6 +25,22 @@ export function WorldPage() {
   const [dialogueDraft, setDialogueDraft] = useState("");
   const [approachingNpcId, setApproachingNpcId] = useState<string | null>(null);
   const [walkableHigh, setWalkableHigh] = useState(false);
+  const [eventPanelOpen, setEventPanelOpen] = useState(false);
+  const [eventDraft, setEventDraft] = useState("");
+  const [eventPreview, setEventPreview] = useState<EventPreviewResult | null>(null);
+  const previewEvent = useMutation({
+    mutationFn: (text: string) => api.previewEvent(worldId, text),
+    onSuccess: (result) => setEventPreview(result),
+  });
+  const commitEvent = useMutation({
+    mutationFn: ({ preview, version }: { preview: EventPreviewSpec; version: number }) => api.commitEvent(worldId, preview, version),
+    onSuccess: (result) => {
+      useWorldStore.getState().applyEvent(result);
+      setEventPanelOpen(false);
+      setEventDraft("");
+      setEventPreview(null);
+    },
+  });
   const initial = useQuery({ queryKey: ["world", worldId], queryFn: () => api.worldState(worldId), enabled: !!worldId });
   const decisions = useQuery({
     queryKey: ["decisions", worldId, store.selectedNpcId],
@@ -146,6 +162,30 @@ export function WorldPage() {
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
           </div>
+          <button className="event-inject-button" onClick={() => setEventPanelOpen((open) => !open)}>{eventPanelOpen ? "×" : "＋ 注入事件"}</button>
+          {eventPanelOpen && <div className="event-inject-panel">
+            <div className="inject-heading"><b>注入事件</b><span>文本将解析为结构化事实，确认后才写入世界</span></div>
+            <div className="inject-templates">
+              {[
+                "气象台发布暴雨预警，河岸市集今天下午可能临时关闭。",
+                "社区公告：河岸市集本周六上午 9 点开幕，现场招募志愿者。",
+                "有居民传言，老何杂货铺月底要关门歇业。",
+              ].map((template) => <button key={template} onClick={() => { setEventDraft(template); setEventPreview(null); }}>{template.slice(0, 18)}…</button>)}
+            </div>
+            <textarea value={eventDraft} onChange={(event) => { setEventDraft(event.target.value); setEventPreview(null); }} placeholder="一句话描述：谁 / 在哪里 / 发生了什么…" maxLength={200} rows={3} />
+            {!eventPreview ? <button className="inject-preview" onClick={() => eventDraft.trim() && previewEvent.mutate(eventDraft)} disabled={!eventDraft.trim() || previewEvent.isPending}>{previewEvent.isPending ? "解析中…" : "预览影响范围"}</button>
+              : <div className="inject-review">
+                  <p><b>{eventPreview.preview.type}</b> · {eventPreview.preview.locationId ?? "镇中心"} · {eventPreview.preview.audience === "public" ? "全镇公开" : eventPreview.preview.audience === "private" ? "私密" : "镇上可见"} · 置信度 {Math.round(eventPreview.confidence)}%</p>
+                  <p>将影响 <b>{eventPreview.affectedNpcCount}</b> 名居民：{eventPreview.spread.map((item) => item.agentId.replace("npc_", "")).join("、") || "无人知晓"}</p>
+                  <div className="inject-actions">
+                    <button onClick={() => { setEventPreview(null); setEventDraft(""); }}>取消</button>
+                    <button className="commit" onClick={() => { const version = useWorldStore.getState().world?.version ?? 0; commitEvent.mutate({ preview: eventPreview.preview, version }); }} disabled={commitEvent.isPending}>{commitEvent.isPending ? "写入中…" : "确认写入"}</button>
+                  </div>
+                </div>}
+            {previewEvent.isError && <p className="inject-error">{previewEvent.error.message}</p>}
+            {commitEvent.isError && <p className="inject-error">{commitEvent.error.message}</p>}
+          </div>}
+          <Link className="causal-link" to={`/world/${worldId}/causal`}>时间线 / 因果</Link>
         </div>
         <aside className="event-sidebar">
           <div className="sidebar-heading"><span>小镇动态</span><b>{store.events.length}</b></div>

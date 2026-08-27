@@ -77,7 +77,7 @@ export function getActionCandidates(npc: Npc, gameMinute: number, worldVersion: 
       durationMinutes: 5,
       destination: workDestination,
       effects: { energy: -7, stress: 4, mood: 2 },
-      score: profile.traits.conscientiousness + (hour >= 8 && hour < 18 ? 28 : -20),
+      score: profile.traits.conscientiousness + (hour >= 8 && hour < 18 ? 10 : -12),
     },
     {
       id: "walk_riverside",

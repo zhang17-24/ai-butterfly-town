@@ -7,7 +7,7 @@ import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import type { RealtimeMessage } from "@ai-town/shared";
+import { EventCommitInputSchema, type RealtimeMessage } from "@ai-town/shared";
 import { openDatabase } from "./db/database.js";
 import { TownRepository } from "./db/repository.js";
 import { createSessionToken, SESSION_COOKIE, verifySessionToken } from "./auth/session.js";
@@ -17,6 +17,9 @@ import { loadConfig, type AppConfig } from "./config.js";
 import { OpenAICompatibleProvider } from "./ai/provider.js";
 import { SimulationDecisionService } from "./ai/simulation-decider.js";
 import { DialogueDecisionService } from "./ai/dialogue-decider.js";
+import { buildEventPreview } from "./domain/event-preview.js";
+import { computeKnowledgeSpread } from "./domain/event-propagation.js";
+import { qixiBlueprint } from "./generation/qixi-blueprint.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -229,6 +232,70 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
       version: result.world.version, emittedAt: new Date().toISOString(), type: "world.status", data: result.world, event: result.event,
     } satisfies RealtimeMessage);
     return result;
+  });
+
+  const EventPreviewInputSchema = z.object({ text: z.string().trim().min(1).max(200) });
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/events/preview", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = EventPreviewInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_EVENT_TEXT", message: "请输入 1–200 个字符的事件描述", recoverable: true, details: {} } });
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const snapshot = repository.getSimulationState(request.params.worldId);
+    if (!snapshot) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const preview = buildEventPreview(parsed.data.text, { nowMinute: snapshot.world.gameMinute, blueprint: qixiBlueprint });
+    const spread = computeKnowledgeSpread(preview.preview, snapshot.npcs, qixiBlueprint);
+    return {
+      previewId: preview.preview.id,
+      preview: {
+        id: preview.preview.id,
+        type: preview.preview.type,
+        summary: preview.preview.summary,
+        fact: preview.preview.fact,
+        locationId: preview.preview.locationId ?? null,
+        involvedNpcIds: preview.preview.involvedNpcIds,
+        audience: preview.preview.audience,
+        gameMinute: preview.preview.gameMinute ?? null,
+        source: preview.preview.source,
+      },
+      confidence: preview.confidence,
+      matchedTerms: preview.matchedTerms,
+      spread: spread.map((diff) => ({ agentId: diff.agentId, via: diff.via, confidence: diff.confidence, channelReason: diff.channelReason })),
+      affectedNpcCount: spread.length,
+    };
+  });
+
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/events/commit", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = EventCommitInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_EVENT_COMMAND", message: "事件提交格式不正确", recoverable: true, details: {} } });
+    const command = repository.executeEventCommitCommand({
+      userId: request.userId!, worldId: request.params.worldId,
+      preview: parsed.data.preview, expectedVersion: parsed.data.expectedVersion, idempotencyKey: parsed.data.idempotencyKey,
+    });
+    if (command.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    if (command.kind === "idempotency_conflict") return reply.code(409).send({ error: { code: "IDEMPOTENCY_KEY_REUSED", message: "同一个请求标识不能用于不同命令", recoverable: true, details: {} } });
+    if (command.kind === "version_conflict") return reply.code(409).send({ error: { code: "WORLD_VERSION_CONFLICT", message: "世界状态已经变化，请刷新后重试", recoverable: true, details: { currentVersion: command.currentVersion } } });
+    if (!command.result.replayed) {
+      hub.broadcast(command.result.world.id, {
+        eventId: command.result.event.id, worldId: command.result.world.id, branchId: command.result.world.activeBranchId,
+        version: command.result.world.version, emittedAt: new Date().toISOString(), type: "world.status",
+        data: command.result.world, event: command.result.event,
+      } satisfies RealtimeMessage);
+    }
+    return command.result;
+  });
+
+  app.get<{ Params: { worldId: string }; Querystring: { afterVersion?: string; limit?: string } }>("/api/worlds/:worldId/timeline", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const state = repository.getWorldState(request.userId!, request.params.worldId);
+    if (!state) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const afterVersion = Number(request.query.afterVersion ?? 0);
+    const limit = Number(request.query.limit ?? 50);
+    return repository.listEventsAfter(request.params.worldId, state.world.activeBranchId, Number.isFinite(afterVersion) ? afterVersion : 0, Number.isFinite(limit) ? Math.min(200, limit) : 50);
+  });
+
+  app.get<{ Params: { worldId: string }; Querystring: { limit?: string } }>("/api/worlds/:worldId/causal", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const limit = Number(request.query.limit ?? 40);
+    return repository.getCausalGraph(request.params.worldId, Number.isFinite(limit) ? Math.min(200, limit) : 40);
   });
 
   if (config.serveWeb) {

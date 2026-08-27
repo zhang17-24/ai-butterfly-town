@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { AiTraceSchema, DecisionOutputSchema, type AiTrace, type DecisionCandidate, type Npc, type WorldSummary } from "@ai-town/shared";
 import { getActionCandidates, type MockAction } from "../domain/mock-decision.js";
+import { eventInfluence, type KnownEventSummary } from "../domain/event-influence.js";
 import type { SimulationAIProvider } from "./provider.js";
 
 export interface DecisionResult {
@@ -11,12 +12,18 @@ export interface DecisionResult {
 export class SimulationDecisionService {
   constructor(private readonly provider: SimulationAIProvider) {}
 
-  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean } = {}): Promise<DecisionResult> {
+  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean; knownEvents?: KnownEventSummary[] } = {}): Promise<DecisionResult> {
     const startedAt = Date.now();
+    const knownEvents = options.knownEvents ?? [];
     const candidates = getActionCandidates(npc, world.gameMinute + 1, world.version + 1);
+    const influence = eventInfluence(npc, knownEvents);
+    for (const candidate of candidates) {
+      candidate.score += influence.get(candidate.id) ?? 0;
+    }
     const fallback = [...candidates].sort((a, b) => b.score - a.score)[0];
     const context = {
       townTime: formatTime(world.gameMinute + 1),
+      knownEvents,
       identity: {
         name: npc.profile.name,
         role: npc.profile.role,
@@ -51,7 +58,7 @@ export class SimulationDecisionService {
         attempts += 1;
         try {
           const response = await this.provider.completeDecision({
-            instructions: "你是小镇居民的决策器。只能从给定候选中选择一个行动。依据人物性格、动机、当前状态和时间选择，不得引用输入之外的事实。输出简短、第一人称可解释理由。",
+            instructions: "你是小镇居民的决策器。只能从给定候选中选择一个行动。依据人物性格、动机、当前状态、时间与系统给出的可知事件选择；你的回答只能依据这些输入，不得引用输入之外的事实（尤其是你未知的事件）。输出简短、第一人称可解释理由。只输出 JSON 对象：{\"actionId\":\"候选id\",\"reason\":\"理由\"}。",
             input: { npc: context, candidates: publicCandidates },
             repairHint: attempt === 0 ? undefined : validationErrors.at(-1),
           });

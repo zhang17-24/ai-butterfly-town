@@ -58,7 +58,8 @@ export class SimulationService {
     const results = await Promise.all(snapshot.npcs.map(async (npc): Promise<{ npc: Npc; event: PendingWorldEvent | null; trace: AiTrace | null }> => {
       let state = applyPassiveMinute(npc.state);
       if (state.actionEndsAtMinute <= gameMinute) {
-        const decision = await this.decider.decide({ ...npc, state }, snapshot.world, { allowAI: aiAllowed.has(npc.profile.id) });
+        const knownEvents = this.repository.getKnownEventSummaries(worldId, npc.profile.id, 5);
+        const decision = await this.decider.decide({ ...npc, state }, snapshot.world, { allowAI: aiAllowed.has(npc.profile.id), knownEvents });
         const action = decision.action;
         const beforeEffects = state;
         const fromPosition = findNearestWalkable(navigationGrid, state.position);

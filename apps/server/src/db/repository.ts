@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
-import type { AiTrace, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
+import type { AiTrace, CausalGraph, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, EventCommitResult, EventPreviewSpec, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
 import { AiTraceSchema, DialogueSessionSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, knowledge, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { computeKnowledgeSpread, type CausalEventSpec } from "../domain/event-propagation.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
 import { qixiBlueprint } from "../generation/qixi-blueprint.js";
 import { createNavigationGrid, findApproachPath, findPath } from "../navigation/a-star.js";
@@ -38,6 +39,12 @@ export type StartDialogueCommandResult =
   | { kind: "not_found" }
   | { kind: "busy" }
   | { kind: "unreachable" }
+  | { kind: "version_conflict"; currentVersion: number };
+
+export type EventCommitCommandResult =
+  | { kind: "ok"; result: EventCommitResult }
+  | { kind: "not_found" }
+  | { kind: "idempotency_conflict" }
   | { kind: "version_conflict"; currentVersion: number };
 
 export interface WorldRepository {
@@ -456,6 +463,99 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     if (!player) return null;
     const session = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.playerId, player.id), eq(dialogueSessions.status, "active"))).orderBy(desc(dialogueSessions.startedAt)).get();
     return session ? this.getDialogueSession(session.id) : null;
+  }
+
+  executeEventCommitCommand(input: { userId: string; worldId: string; preview: EventPreviewSpec; expectedVersion: number; idempotencyKey: string }): EventCommitCommandResult {
+    return this.handle.sqlite.transaction(() => {
+      const current = this.handle.db.select().from(worlds).where(and(eq(worlds.id, input.worldId), eq(worlds.userId, input.userId))).get();
+      if (!current) return { kind: "not_found" } as const;
+      const receipt = this.handle.db.select().from(commandReceipts).where(eq(commandReceipts.idempotencyKey, input.idempotencyKey)).get();
+      if (receipt && receipt.commandType !== "event.commit") return { kind: "idempotency_conflict" } as const;
+      if (receipt && receipt.commandType === "event.commit" && receipt.worldId === input.worldId) {
+        return { kind: "ok", result: JSON.parse(receipt.responseJson) as EventCommitResult } as const;
+      }
+      if (receipt && receipt.worldId !== input.worldId) return { kind: "idempotency_conflict" } as const;
+      if (current.version !== input.expectedVersion) return { kind: "version_conflict", currentVersion: current.version } as const;
+      const npcRows = this.handle.db.select().from(npcs).where(eq(npcs.worldId, input.worldId)).all();
+      const playerRow = this.handle.db.select().from(players).where(eq(players.worldId, input.worldId)).get();
+      const spec: CausalEventSpec = {
+        id: input.preview.id,
+        type: input.preview.type,
+        summary: input.preview.summary,
+        fact: input.preview.fact,
+        locationId: input.preview.locationId ?? undefined,
+        involvedNpcIds: input.preview.involvedNpcIds,
+        audience: input.preview.audience,
+        gameMinute: input.preview.gameMinute ?? undefined,
+        source: "player",
+      };
+      const diffs = computeKnowledgeSpread(
+        spec,
+        npcRows.map((row) => ({ profile: NpcProfileSchema.parse(JSON.parse(row.profileJson)), state: NpcStateSchema.parse(JSON.parse(row.stateJson)) })),
+        qixiBlueprint,
+      );
+      const now = new Date().toISOString();
+      const version = current.version + 1;
+      const branchId = current.activeBranchId ?? this.mainBranchId(current.id);
+      const event: TownEvent = {
+        id: randomUUID(), worldId: current.id, branchId, version, gameMinute: spec.gameMinute ?? current.gameMinute,
+        type: "factory.event", actorId: playerRow?.id ?? null, summary: `你注入事件：${clip(spec.summary, 60)}`, source: "player",
+        causeIds: [], schemaVersion: 1, payload: {
+          previewId: spec.id, kind: spec.type, audience: spec.audience, locationId: spec.locationId ?? null,
+          fact: spec.fact, gameMinute: spec.gameMinute ?? null,
+        }, createdAt: now,
+      };
+      this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now, gameMinute: spec.gameMinute ?? current.gameMinute }).where(eq(worlds.id, current.id)).run();
+      this.insertEvent(event);
+      this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      const affectedNpcs = diffs.map((diff) => {
+        const knowledgeId = randomUUID();
+        this.handle.db.insert(knowledge).values({
+          id: knowledgeId, worldId: current.id, agentId: diff.agentId,
+          factJson: JSON.stringify({ ...diff.fact, eventId: event.id }), sourceEventId: event.id,
+          confidence: Math.round(diff.confidence * 10) / 10, createdAt: now,
+        }).run();
+        return { agentId: diff.agentId, knowledgeId, via: diff.via, confidence: Math.round(diff.confidence * 10) / 10 };
+      });
+      const npcCount = npcRows.length;
+      const result: EventCommitResult = {
+        event,
+        world: this.toWorldSummary({ ...current, version, activeBranchId: branchId, gameMinute: spec.gameMinute ?? current.gameMinute }, npcCount),
+        affectedNpcs,
+        replayed: false,
+      };
+      this.handle.db.insert(commandReceipts).values({
+        idempotencyKey: input.idempotencyKey, worldId: current.id, commandType: "event.commit",
+        baseVersion: input.expectedVersion, committedVersion: version, responseJson: JSON.stringify(result), createdAt: now,
+      }).run();
+      return { kind: "ok", result } as const;
+    })();
+  }
+
+  getKnownEventSummaries(worldId: string, npcId: string, limit = 5): Array<{ eventId: string; type: string; summary: string; gameMinute: number }> {
+    return this.handle.db
+      .select({
+        eventId: events.id,
+        type: events.type,
+        summary: events.summary,
+        gameMinute: events.gameMinute,
+      })
+      .from(knowledge)
+      .innerJoin(events, eq(knowledge.sourceEventId, events.id))
+      .where(and(eq(knowledge.worldId, worldId), eq(knowledge.agentId, npcId)))
+      .orderBy(desc(knowledge.createdAt))
+      .limit(limit)
+      .all();
+  }
+
+  getCausalGraph(worldId: string, limit = 40): CausalGraph | null {
+    const world = this.handle.db.select().from(worlds).where(eq(worlds.id, worldId)).get();
+    if (!world) return null;
+    const branchId = world.activeBranchId ?? this.mainBranchId(worldId);
+    const rows = this.handle.db.select().from(events).where(and(eq(events.worldId, worldId), eq(events.branchId, branchId))).orderBy(desc(events.version)).limit(limit).all();
+    const eventsOut = rows.map((row) => this.toEvent(row));
+    const edges = eventsOut.flatMap((event) => event.causeIds.map((from) => ({ from, to: event.id, relation: "cause" })));
+    return { worldId, events: eventsOut, edges };
   }
 
   getActiveDialogueNpcIds(worldId: string): string[] {
