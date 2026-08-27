@@ -1,0 +1,209 @@
+.new-world {
+  min-height: 100vh;
+  background: #101322;
+  color: #e8eaf2;
+  padding: 28px 32px 64px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.new-world-header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.new-world-sub {
+  color: #9aa1b5;
+  margin-top: 4px;
+}
+
+.new-world-form {
+  background: #191d2e;
+  border: 1px solid #262c45;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.new-world-label {
+  display: block;
+  font-size: 13px;
+  color: #9aa1b5;
+  margin-bottom: 8px;
+}
+
+.new-world-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  background: #101322;
+  border: 1px solid #2c3352;
+  border-radius: 8px;
+  color: #e8eaf2;
+  padding: 12px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.new-world-prompt:focus {
+  outline: none;
+  border-color: #5b8cff;
+}
+
+.new-world-count {
+  text-align: right;
+  font-size: 12px;
+  color: #7c8399;
+  margin-top: 4px;
+}
+
+.new-world-toggle {
+  background: transparent;
+  border: none;
+  color: #8fb8ff;
+  padding: 10px 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.new-world-advanced {
+  border-top: 1px dashed #2c3352;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.new-world-population,
+.new-world-styles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.new-world-population button,
+.new-world-styles button {
+  background: #101322;
+  border: 1px solid #2c3352;
+  color: #c3c8d8;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.new-world-population button.active,
+.new-world-styles button.active {
+  border-color: #5b8cff;
+  background: #1e2a4d;
+  color: #fff;
+}
+
+.new-world-error {
+  color: #ff9a9a;
+  font-size: 13px;
+  margin: 10px 0;
+}
+
+.new-world-create {
+  margin-top: 14px;
+  background: #2f6bff;
+  border: none;
+  color: #fff;
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.new-world-create:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.new-world-progress {
+  margin-top: 20px;
+  background: #191d2e;
+  border: 1px solid #262c45;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.new-world-progress-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #9aa1b5;
+  margin-bottom: 10px;
+}
+
+.new-world-bar {
+  height: 8px;
+  background: #101322;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.new-world-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2f6bff, #7de3a3);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.new-world-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 12px;
+  color: #7c8399;
+}
+
+.new-world-stages li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.new-world-stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2c3352;
+}
+
+.new-world-stages li.done {
+  color: #7de3a3;
+}
+
+.new-world-stages li.done .new-world-stage-dot {
+  background: #7de3a3;
+}
+
+.new-world-stages li.active {
+  color: #fff;
+}
+
+.new-world-stages li.active .new-world-stage-dot {
+  background: #5b8cff;
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.25);
+}
+
+.new-world-success {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.new-world-enter {
+  background: #204a2f;
+  border: 1px solid #7de3a3;
+  color: #7de3a3;
+  padding: 8px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 14px;
+}
