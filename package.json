@@ -4,16 +4,18 @@
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "scripts": {
-    "dev": "pnpm --parallel --filter @ai-town/server --filter @ai-town/web dev",
+    "dev": "pnpm --filter @ai-town/shared build && pnpm --parallel --filter @ai-town/server --filter @ai-town/web dev",
     "dev:server": "pnpm --filter @ai-town/server dev",
     "dev:web": "pnpm --filter @ai-town/web dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @ai-town/shared build && pnpm -r typecheck",
+    "test": "pnpm --filter @ai-town/shared build && pnpm -r test",
     "verify": "pnpm typecheck && pnpm test && pnpm build",
     "delivery:check": "node scripts/delivery-check.mjs",
     "start": "pnpm --filter @ai-town/server start",
-    "generate:sprites": "tsx apps/server/scripts/generate-npc-sprites.ts"
+    "generate:sprites": "tsx apps/server/scripts/generate-npc-sprites.ts",
+    "test:e2e": "tsx apps/server/scripts/e2e-smoke.ts",
+    "test:ai": "tsx apps/server/scripts/test-ai.ts --image"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

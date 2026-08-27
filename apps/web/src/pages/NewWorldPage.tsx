@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import type { Job } from "@ai-town/shared";
+import { api as serviceApi } from "../services/api";
 import "./NewWorldPage.css";
 
 /**
- * NewWorldApi 契约 —— 由主线 A 接线时替换为 services/api 中的真实方法
- * (POST /worlds 或 POST /generation/jobs、GET /generation/jobs/:id)。
+ * NewWorldApi 契约 —— 对齐 services/api 的真实生成作业(POST /worlds、GET /worlds/jobs/:id)。
  * 本组件只依赖注入的 api 实例,自身不发起任何运行时请求。
  */
 export interface CreateWorldRequest {
@@ -25,19 +26,11 @@ export const GENERATION_STAGES = [
 
 export type GenerationStage = (typeof GENERATION_STAGES)[number];
 
-export interface GenerationJob {
-  id: string;
-  worldId: string | null;
-  status: "queued" | "running" | "success" | "failed";
-  /** 当前阶段下标(0..5);成功后等于 GENERATION_STAGES.length,进度=100% */
-  stageIndex: number;
-  error: string | null;
-  createdAt: string;
-}
+export type GenerationJob = Job;
 
 export interface NewWorldApi {
-  createWorld(request: CreateWorldRequest): Promise<GenerationJob>;
-  getJob(jobId: string): Promise<GenerationJob>;
+  createWorld(request: CreateWorldRequest): Promise<Job>;
+  getJob(jobId: string): Promise<Job>;
 }
 
 export interface NewWorldPageProps {
@@ -52,14 +45,19 @@ export const STYLE_OPTIONS = [
 
 /** 本地预览用模拟实现:createWorld 返回排队中,getJob 每轮推进一个阶段。*/
 export const mockApi: NewWorldApi = {
-  async createWorld(request: CreateWorldRequest): Promise<GenerationJob> {
+  async createWorld(_request: CreateWorldRequest): Promise<GenerationJob> {
     return {
       id: `job_mock_${Date.now().toString(36)}`,
       worldId: null,
+      kind: "generate_world",
       status: "queued",
       stageIndex: 0,
+      stageLabel: null,
+      progressPercent: 0,
       error: null,
+      resultJson: null,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
   },
   async getJob(jobId: string): Promise<GenerationJob> {
@@ -69,18 +67,35 @@ export const mockApi: NewWorldApi = {
     return {
       id: jobId,
       worldId: done ? "world_mock_qixi" : null,
-      status: done ? "success" : stageIndex === 2 ? "running" : "queued",
+      kind: "generate_world",
+      status: done ? "succeeded" : stageIndex === 2 ? "running" : "queued",
       stageIndex: Math.min(stageIndex, GENERATION_STAGES.length),
+      stageLabel: GENERATION_STAGES[Math.min(stageIndex, GENERATION_STAGES.length - 1)],
+      progressPercent: Math.min(stageIndex, GENERATION_STAGES.length) * (100 / GENERATION_STAGES.length),
       error: null,
+      resultJson: done ? JSON.stringify({ worldId: "world_mock_qixi" }) : null,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
   },
 };
 
 const POPULATION_PRESETS = [3, 5, 8, 12, 20] as const;
 
+/** 从作业的 resultJson 里解析 worldId(生成世界成功时写入)。 */
+function worldIdFromResult(job: Job): string | null {
+  if (!job.resultJson) return null;
+  try {
+    const parsed = JSON.parse(job.resultJson) as { worldId?: unknown };
+    return typeof parsed.worldId === "string" && parsed.worldId.length > 0 ? parsed.worldId : null;
+  } catch {
+    return null;
+  }
+}
+
 export function NewWorldPage(props: NewWorldPageProps) {
-  const api: NewWorldApi = props.api ?? mockApi;
+  const navigate = useNavigate();
+  const api: NewWorldApi = props.api ?? { createWorld: serviceApi.createWorld, getJob: serviceApi.getJob };
 
   const [prompt, setPrompt] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -111,9 +126,16 @@ export function NewWorldPage(props: NewWorldPageProps) {
       try {
         const next = await api.getJob(job.id);
         setJob(next);
-        if (next.status === "success" || next.status === "failed") {
+        if (next.status === "succeeded" || next.status === "failed") {
           setCreating(false);
           clearInterval(timer);
+          if (next.status === "succeeded") {
+            const createdWorldId = worldIdFromResult(next);
+            if (createdWorldId) {
+              navigate(`/world/${createdWorldId}`);
+              return;
+            }
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -122,13 +144,15 @@ export function NewWorldPage(props: NewWorldPageProps) {
       }
     }, 1200);
     return () => clearInterval(timer);
-  }, [job, api]);
+  }, [job, api, navigate]);
 
   const progress = job === null
     ? 0
-    : job.status === "success"
+    : job.status === "succeeded"
       ? 100
-      : Math.round((job.stageIndex / GENERATION_STAGES.length) * 100);
+      : job.status === "failed"
+        ? job.progressPercent
+        : Math.round(job.progressPercent ?? (job.stageIndex / GENERATION_STAGES.length) * 100);
 
   const canSubmit = prompt.trim().length > 0 && !creating;
 
@@ -137,7 +161,7 @@ export function NewWorldPage(props: NewWorldPageProps) {
       <header className="new-world-header">
         <div className="brand-mark dark">AI BUTTERFLY TOWN</div>
         <h1>一句话创建世界</h1>
-        <p className="new-world-sub">M7 组件 · 未接线预览(演示数据来自内置 mockApi)</p>
+        <p className="new-world-sub">M7 组件 · 已接入生成作业接口(POST /worlds)</p>
       </header>
 
       <section className="new-world-form">
@@ -201,15 +225,18 @@ export function NewWorldPage(props: NewWorldPageProps) {
         <section className="new-world-progress">
           <div className="new-world-progress-head">
             <span>作业 {job.id}</span>
-            <span>{job.status === "success" ? "完成" : job.status === "failed" ? "失败" : `${progress}%`}</span>
+            <span>{job.status === "succeeded" ? "完成" : job.status === "failed" ? "失败" : `${progress}%`}</span>
           </div>
           <div className="new-world-bar">
             <div className="new-world-bar-fill" style={{ width: `${progress}%` }} />
           </div>
+          {(job.status === "queued" || job.status === "running") && job.stageLabel && (
+            <p className="new-world-stage-label">当前阶段 · {job.stageLabel}</p>
+          )}
           <ol className="new-world-stages">
             {GENERATION_STAGES.map((stage, index) => {
-              const done = job.status === "success" || job.stageIndex > index;
-              const active = job.status !== "success" && job.stageIndex === index;
+              const done = job.status === "succeeded" || job.stageIndex > index;
+              const active = job.status !== "succeeded" && job.stageIndex === index;
               return (
                 <li key={stage} className={done ? "done" : active ? "active" : ""}>
                   <span className="new-world-stage-dot" />
@@ -228,7 +255,7 @@ export function NewWorldPage(props: NewWorldPageProps) {
             </button>
           )}
 
-          {job.status === "success" && job.worldId && (
+          {job.status === "succeeded" && job.worldId && (
             <div className="new-world-success">
               <p>世界已就绪({job.worldId})</p>
               <Link className="new-world-enter" to={`/world/${job.worldId}`}>进入世界 →</Link>

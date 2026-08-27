@@ -37,7 +37,7 @@ export function HomePage() {
             </div>
           </Link>
         ))}
-        <article className="create-placeholder"><span>＋</span><h3>一句话创建世界</h3><p>第二、三天接入真实编排与美术生成。</p></article>
+        <Link className="create-placeholder" to="/worlds/new"><span>＋</span><h3>一句话创建世界</h3><p>描述你的镇子，AI 帮你生成结构与居民。</p></Link>
       </section>
     </main>
   );

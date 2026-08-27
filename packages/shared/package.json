@@ -4,9 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./qixi-blueprint": "./src/qixi-blueprint.ts",
-    "./navigation": "./src/navigation.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./qixi-blueprint": {
+      "types": "./dist/qixi-blueprint.d.ts",
+      "default": "./dist/qixi-blueprint.js"
+    },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "default": "./dist/navigation.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

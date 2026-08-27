@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AiTrace, WorldSummary } from "@ai-town/shared";
+import { api as serviceApi } from "../services/api";
 import "./AiLabPage.css";
 
 /**
- * AiLabApi 契约 —— 由主线 A 接线时替换为 services/api 中的真实方法
- * (GET /ai/traces、POST /ai/replay、POST /ai/compare、GET /worlds)。
- * 本组件只依赖注入的 api 实例,自身不发起任何运行时请求。
+ * AiLabApi 契约 —— trace 已接线到 services/api 的真实方法
+ * (GET /worlds/:worldId/agent-traces、GET /worlds/:worldId/agents/:agentId/decisions、GET /worlds)。
+ * 重放/对比暂无真实后端,保留 Mock。本组件只依赖注入的 api 实例。
  */
-export interface TraceListFilter {
-  worldId?: string;
+export interface TraceListOptions {
   agentId?: string;
   role?: AiTrace["role"];
   status?: AiTrace["status"];
   source?: AiTrace["source"];
+  limit?: number;
 }
 
 export interface AiReplayRequest {
@@ -52,7 +53,7 @@ export interface AiCompareResult {
 }
 
 export interface AiLabApi {
-  listTraces(filter?: TraceListFilter): Promise<AiTrace[]>;
+  listTraces(worldId: string, options?: TraceListOptions): Promise<AiTrace[]>;
   listWorlds(): Promise<WorldSummary[]>;
   replay(request: AiReplayRequest): Promise<AiReplayResult>;
   compare(request: AiCompareRequest): Promise<AiCompareResult>;
@@ -82,13 +83,13 @@ function renderJson(value: unknown): string {
 
 /** 本地预览用模拟实现:数据纯内存,无任何网络调用。*/
 export const mockApi: AiLabApi = {
-  async listTraces(filter = {}): Promise<AiTrace[]> {
+  async listTraces(worldId: string, options: TraceListOptions = {}): Promise<AiTrace[]> {
     return mockTraces.filter((trace) =>
-      (filter.worldId === undefined || trace.worldId === filter.worldId) &&
-      (filter.agentId === undefined || trace.agentId === filter.agentId) &&
-      (filter.role === undefined || trace.role === filter.role) &&
-      (filter.status === undefined || trace.status === filter.status) &&
-      (filter.source === undefined || trace.source === filter.source),
+      (worldId === "" || trace.worldId === worldId) &&
+      (options.agentId === undefined || trace.agentId === options.agentId) &&
+      (options.role === undefined || trace.role === options.role) &&
+      (options.status === undefined || trace.status === options.status) &&
+      (options.source === undefined || trace.source === options.source),
     );
   },
   async listWorlds(): Promise<WorldSummary[]> {
@@ -117,6 +118,36 @@ export const mockApi: AiLabApi = {
       verdict: replay.output.finalActionId === trace.finalActionId ? "两路结论一致" : "两路结论不一致(差异见输出列)",
     };
   },
+};
+
+/**
+ * 真实实现:trace 按世界聚合(全部世界时逐世界拉取),重放/对比暂无对应后端,复用 Mock 逻辑。
+ */
+export const realApi: AiLabApi = {
+  async listTraces(worldId: string, options: TraceListOptions = {}): Promise<AiTrace[]> {
+    let traces: AiTrace[] = [];
+    if (worldId) {
+      if (options.agentId) {
+        traces = await serviceApi.aiTraces(worldId, options.agentId);
+      } else {
+        traces = await serviceApi.worldAgentTraces(worldId, { role: options.role, limit: options.limit ?? 30 });
+      }
+    } else {
+      const worlds = await serviceApi.worlds();
+      const settled = await Promise.allSettled(
+        worlds.map((world) => serviceApi.worldAgentTraces(world.id, { role: options.role, limit: options.limit ?? 30 })),
+      );
+      traces = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+    }
+    return traces.filter((trace) =>
+      (options.agentId === undefined || trace.agentId === options.agentId) &&
+      (options.status === undefined || trace.status === options.status) &&
+      (options.source === undefined || trace.source === options.source),
+    );
+  },
+  listWorlds: () => serviceApi.worlds(),
+  replay: (request) => mockApi.replay(request),
+  compare: (request) => mockApi.compare(request),
 };
 
 const mockWorlds: WorldSummary[] = [
@@ -222,7 +253,7 @@ const selectOptions = {
 };
 
 export function AiLabPage(props: AiLabPageProps) {
-  const api: AiLabApi = props.api ?? mockApi;
+  const api: AiLabApi = props.api ?? realApi;
 
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [allTraces, setAllTraces] = useState<AiTrace[]>([]);
@@ -245,11 +276,11 @@ export function AiLabPage(props: AiLabPageProps) {
   const [compareResult, setCompareResult] = useState<AiCompareResult | null>(null);
   const [compareBusy, setCompareBusy] = useState(false);
 
-  const load = useCallback(async (filter: TraceListFilter) => {
+  const load = useCallback(async (worldId: string, options: TraceListOptions = {}) => {
     setLoading(true);
     setError(null);
     try {
-      setTraces(await api.listTraces(filter));
+      setTraces(await api.listTraces(worldId, options));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -261,7 +292,7 @@ export function AiLabPage(props: AiLabPageProps) {
     let cancelled = false;
     (async () => {
       try {
-        const [worldList, traceList] = await Promise.all([api.listWorlds(), api.listTraces({})]);
+        const [worldList, traceList] = await Promise.all([api.listWorlds(), api.listTraces("", { limit: 60 })]);
         if (cancelled) return;
         setWorlds(worldList);
         setAllTraces(traceList);
@@ -276,16 +307,16 @@ export function AiLabPage(props: AiLabPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const currentOptions = useMemo<TraceListOptions>(() => ({
+    ...(agentId ? { agentId } : {}),
+    ...(role ? { role: role as AiTrace["role"] } : {}),
+    ...(status ? { status: status as AiTrace["status"] } : {}),
+    ...(source ? { source: source as AiTrace["source"] } : {}),
+  }), [agentId, role, status, source]);
+
   useEffect(() => {
-    const filter: TraceListFilter = {
-      ...(worldId ? { worldId } : {}),
-      ...(agentId ? { agentId } : {}),
-      ...(role ? { role: role as AiTrace["role"] } : {}),
-      ...(status ? { status: status as AiTrace["status"] } : {}),
-      ...(source ? { source: source as AiTrace["source"] } : {}),
-    };
-    load(filter);
-  }, [worldId, agentId, role, status, source, load]);
+    load(worldId, currentOptions);
+  }, [worldId, currentOptions, load]);
 
   const agentOptions = useMemo(() => {
     const names = new Set(allTraces.map((trace) => trace.agentId));
@@ -325,7 +356,7 @@ export function AiLabPage(props: AiLabPageProps) {
         <div>
           <div className="brand-mark dark">AI BUTTERFLY TOWN</div>
           <h1>AI 调试工作台</h1>
-          <p className="ai-lab-sub">M8 组件 · 未接线预览(交互数据来自内置 mockApi)</p>
+          <p className="ai-lab-sub">M8 组件 · trace 已接入真实服务端(重放/对比暂无后端,保留 Mock)</p>
         </div>
       </header>
 
@@ -360,7 +391,7 @@ export function AiLabPage(props: AiLabPageProps) {
             {selectOptions.source.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <button className="ai-lab-minor" onClick={() => load({})}>刷新</button>
+        <button className="ai-lab-minor" onClick={() => { void load(worldId, currentOptions); }}>刷新</button>
       </section>
 
       {error && <p className="ai-lab-error">{error}</p>}

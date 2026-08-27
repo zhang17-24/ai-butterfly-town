@@ -1,14 +1,23 @@
 import { useEffect, useRef } from "react";
 import Phaser from "phaser";
+import type { WorldBlueprint } from "@ai-town/shared";
 import { TownScene } from "./TownScene";
 import { useWorldStore } from "../state/world-store";
 
-export function TownCanvas() {
+export interface TownCanvasProps {
+  worldId?: string;
+  blueprint?: WorldBlueprint;
+  mapImageUrl?: string;
+}
+
+export function TownCanvas({ worldId, blueprint, mapImageUrl }: TownCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<TownScene | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const scene = new TownScene();
+    const scene = new TownScene({ worldId, blueprint, mapImageUrl });
+    sceneRef.current = scene;
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: hostRef.current,
@@ -39,9 +48,16 @@ export function TownCanvas() {
     });
     return () => {
       unsubscribe();
+      sceneRef.current = null;
       game.destroy(true);
     };
+    // 场景只随世界挂载创建一次;blueprint/mapImageUrl 变化由下方 effect 推送到场景。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    sceneRef.current?.setBlueprint(blueprint, mapImageUrl);
+  }, [worldId, blueprint, mapImageUrl]);
 
   return <div className="town-canvas" ref={hostRef} aria-label="栖溪镇实时地图" />;
 }

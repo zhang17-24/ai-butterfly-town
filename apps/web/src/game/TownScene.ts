@@ -1,16 +1,7 @@
 import Phaser from "phaser";
-import { createNavigationGrid, type Npc, type Player, type Position } from "@ai-town/shared";
+import { createNavigationGrid, type Npc, type Player, type Position, type WorldBlueprint } from "@ai-town/shared";
 import { qixiBlueprint } from "@ai-town/shared/qixi-blueprint";
 import { gameEvents } from "./event-bus";
-
-const placeLabels = [
-  { name: "栖岸咖啡馆", x: 132, y: 34 },
-  { name: "安宁诊所", x: 785, y: 28 },
-  { name: "老何杂货铺", x: 100, y: 322 },
-  { name: "社区中心", x: 785, y: 232 },
-  { name: "栖溪公寓", x: 748, y: 466 },
-  { name: "河岸市集", x: 566, y: 192 },
-];
 
 type NpcMarker = Phaser.GameObjects.Container & {
   avatar: Phaser.GameObjects.GameObject & { setScale?: (value: number) => unknown; setFlipX?: (value: boolean) => unknown };
@@ -21,45 +12,120 @@ type NpcMarker = Phaser.GameObjects.Container & {
 
 const SPRITE_IDS = ["npc_lin_xia", "npc_shen_zhiheng", "npc_he_jianguo", "npc_zhou_fang", "npc_tang_yucheng", "player"] as const;
 
+/** 场景显示尺寸固定为 900x620(map 图统一 setDisplaySize 到此尺寸)。 */
+const VIEW_WIDTH = 900;
+const VIEW_HEIGHT = 620;
+
+export interface TownSceneOptions {
+  worldId?: string;
+  blueprint?: WorldBlueprint;
+  mapImageUrl?: string;
+}
+
 export class TownScene extends Phaser.Scene {
   private markers = new Map<string, NpcMarker>();
   private playerMarker: (Phaser.GameObjects.Container & { spriteKey: string | null; avatar: Phaser.GameObjects.GameObject }) | null = null;
   private playerAvatar: Phaser.GameObjects.GameObject | null = null;
   private walkableOverlay: Phaser.GameObjects.Graphics | null = null;
+  private walkableVisible = false;
+  private blueprint: WorldBlueprint = qixiBlueprint;
+  private worldId: string | null = null;
+  private mapImageUrl: string | null = null;
+  private mapImage: Phaser.GameObjects.Image | null = null;
+  private labelTexts: Phaser.GameObjects.Text[] = [];
 
-  constructor() {
+  constructor(options: TownSceneOptions = {}) {
     super("TownScene");
+    this.worldId = options.worldId ?? null;
+    this.blueprint = options.blueprint ?? qixiBlueprint;
+    this.mapImageUrl = options.mapImageUrl ?? null;
+  }
+
+  private mapKey(): string {
+    return this.worldId ? `map-${this.worldId}` : "qixi-town-map";
   }
 
   preload(): void {
     this.load.image("qixi-town-map", "/assets/maps/qixi-town-prebuilt-v1.png");
+    if (this.worldId && this.mapImageUrl) this.load.image(this.mapKey(), this.mapImageUrl);
     for (const id of SPRITE_IDS) this.load.image(`sheet-${id}`, `/assets/npcs/${id}.png`);
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor("#173e42");
-    this.textures.get("qixi-town-map").setFilter(Phaser.Textures.FilterMode.NEAREST);
-    this.add.image(450, 310, "qixi-town-map").setDisplaySize(900, 620);
-    this.add.rectangle(450, 310, 900, 620, 0x102d2c, 0.04);
-    this.drawWalkableOverlay();
+    this.applyMapImage();
+    this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x102d2c, 0.04);
+    this.createWalkableOverlay();
     this.registerSpriteSheets();
+    this.renderPlaceLabels();
 
-    for (const place of placeLabels) {
-      this.add.text(place.x, place.y, place.name, {
-        color: "#fffaf0",
-        backgroundColor: "#173b36c9",
-        padding: { x: 7, y: 4 },
-        fontSize: "12px",
-        fontStyle: "bold",
-        fontFamily: "sans-serif",
-        stroke: "#173b36",
-        strokeThickness: 1,
-      }).setOrigin(0.5).setDepth(5);
-    }
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       if (currentlyOver.length > 0) return;
       gameEvents.dispatchEvent(new CustomEvent("map:move", { detail: { x: Math.round(pointer.worldX), y: Math.round(pointer.worldY) } }));
     });
+  }
+
+  /** 由外部(WorldPage 拉取 blueprint 后)调用:换地图纹理、重算导航网格与地标。 */
+  setBlueprint(blueprint: WorldBlueprint | undefined, mapImageUrl: string | undefined): void {
+    this.blueprint = blueprint ?? qixiBlueprint;
+    this.mapImageUrl = mapImageUrl ?? null;
+    if (!this.mapImage) return; // create() 尚未运行,字段已更新,交给 create() 应用
+    this.applyMapImage();
+    this.redrawWalkableOverlay();
+    this.renderPlaceLabels();
+  }
+
+  private applyMapImage(): void {
+    const useFallback = !this.worldId || !this.mapImageUrl;
+    const key = useFallback ? "qixi-town-map" : this.mapKey();
+    if (this.textures.exists(key)) {
+      this.attachMapImage(key);
+      return;
+    }
+    if (useFallback) return; // preload 已保证 qixi 纹理存在
+    // 运行时加载生成世界的地图(blueprint 晚于场景创建到达的场景)
+    const imageUrl = this.mapImageUrl!;
+    this.load.image(key, imageUrl);
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      if (!this.scene.isActive()) return;
+      this.attachMapImage(key);
+    });
+    this.load.start();
+  }
+
+  private attachMapImage(key: string): void {
+    if (!this.textures.exists(key)) return;
+    this.textures.get(key)?.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    if (this.mapImage) {
+      this.mapImage.setTexture(key).setDisplaySize(VIEW_WIDTH, VIEW_HEIGHT);
+    } else {
+      this.mapImage = this.add.image(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, key).setDisplaySize(VIEW_WIDTH, VIEW_HEIGHT);
+    }
+    this.mapImage.setDepth(-1);
+  }
+
+  private renderPlaceLabels(): void {
+    for (const text of this.labelTexts) text.destroy();
+    this.labelTexts = [];
+    for (const location of this.blueprint.locations) {
+      if (location.kind === "water") continue;
+      const text = this.add.text(
+        Math.round(location.bounds.x + location.bounds.width / 2),
+        Math.round(location.bounds.y + 16),
+        location.name,
+        {
+          color: "#fffaf0",
+          backgroundColor: "#173b36c9",
+          padding: { x: 7, y: 4 },
+          fontSize: "12px",
+          fontStyle: "bold",
+          fontFamily: "sans-serif",
+          stroke: "#173b36",
+          strokeThickness: 1,
+        },
+      ).setOrigin(0.5).setDepth(5);
+      this.labelTexts.push(text);
+    }
   }
 
   applyNpcs(npcs: Npc[]): void {
@@ -164,9 +230,22 @@ export class TownScene extends Phaser.Scene {
     (marker.avatar as unknown as Phaser.GameObjects.Sprite).anims.play(`${marker.spriteKey}-idle-front`, true);
   }
 
-  private drawWalkableOverlay(): void {
-    const grid = createNavigationGrid(qixiBlueprint);
+  private createWalkableOverlay(): void {
     const overlay = this.add.graphics().setDepth(4);
+    this.walkableOverlay = overlay;
+    overlay.setVisible(false);
+    gameEvents.addEventListener("walkable:visible", (event) => {
+      this.setWalkableVisible((event as CustomEvent<boolean>).detail);
+    });
+    this.redrawWalkableOverlay();
+  }
+
+  private redrawWalkableOverlay(): void {
+    const overlay = this.walkableOverlay;
+    if (!overlay) return;
+    // 导航网格由当前 blueprint 计算(生成世界时使用服务端 blueprint;否则栖溪镇蓝图)
+    const grid = createNavigationGrid(this.blueprint);
+    overlay.clear();
     overlay.fillStyle(0x00d4ff, 1);
     for (let row = 0; row < grid.rows; row += 1) {
       for (let column = 0; column < grid.columns; column += 1) {
@@ -174,14 +253,11 @@ export class TownScene extends Phaser.Scene {
         overlay.fillRect(column * grid.tileSize, row * grid.tileSize, grid.tileSize, grid.tileSize);
       }
     }
-    this.walkableOverlay = overlay;
-    overlay.setVisible(false);
-    gameEvents.addEventListener("walkable:visible", (event) => {
-      this.setWalkableVisible((event as CustomEvent<boolean>).detail);
-    });
+    this.setWalkableVisible(this.walkableVisible);
   }
 
   setWalkableVisible(visible: boolean): void {
+    this.walkableVisible = visible;
     if (!this.walkableOverlay) return;
     this.walkableOverlay.setVisible(visible);
     this.walkableOverlay.setAlpha(visible ? 0.55 : 0);

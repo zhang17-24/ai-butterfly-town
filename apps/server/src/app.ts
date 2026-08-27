@@ -23,6 +23,7 @@ import { qixiBlueprint } from "./generation/qixi-blueprint.js";
 import { VisualGenerationOrchestrator } from "./generation/visual-orchestrator.js";
 import { JobWorker } from "./jobs/worker.js";
 import { buildGenerateWorldHandler } from "./jobs/generate-world-handler.js";
+import { registerOpenApi } from "./openapi.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -387,6 +388,8 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     const limit = Number(request.query.limit ?? 30);
     return repository.listWorldTraces(request.params.worldId, Number.isFinite(limit) ? limit : 30, request.query.role);
   });
+
+  await registerOpenApi(app);
 
   if (config.serveWeb) {
     const here = path.dirname(fileURLToPath(import.meta.url));
