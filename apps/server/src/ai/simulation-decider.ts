@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { AiTraceSchema, DecisionOutputSchema, type AiTrace, type DecisionCandidate, type Npc, type WorldSummary } from "@ai-town/shared";
 import { getActionCandidates, type MockAction } from "../domain/mock-decision.js";
 import { eventInfluence, type KnownEventSummary } from "../domain/event-influence.js";
+import { buildMemoryContextSection } from "../memory/caption.js";
+import { computeMemoryRelevanceBonus } from "../memory/mock-decision-bonus.js";
+import type { RecalledMemory } from "@ai-town/shared";
 import type { SimulationAIProvider } from "./provider.js";
 
 export interface DecisionResult {
@@ -9,16 +12,25 @@ export interface DecisionResult {
   trace: AiTrace;
 }
 
+const clampScore = (value: number) => Math.min(200, Math.max(0, value));
+
 export class SimulationDecisionService {
   constructor(private readonly provider: SimulationAIProvider) {}
 
-  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean; knownEvents?: KnownEventSummary[] } = {}): Promise<DecisionResult> {
+  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean; knownEvents?: KnownEventSummary[]; recalledMemories?: RecalledMemory[] } = {}): Promise<DecisionResult> {
     const startedAt = Date.now();
     const knownEvents = options.knownEvents ?? [];
+    const recalledMemories = options.recalledMemories ?? [];
     const candidates = getActionCandidates(npc, world.gameMinute + 1, world.version + 1);
     const influence = eventInfluence(npc, knownEvents);
     for (const candidate of candidates) {
       candidate.score += influence.get(candidate.id) ?? 0;
+    }
+    const memoryBonuses = new Map<string, number>();
+    for (const candidate of candidates) {
+      const bonus = computeMemoryRelevanceBonus(candidate, recalledMemories);
+      bonus.bonus > 0 && memoryBonuses.set(candidate.id, bonus.bonus);
+      candidate.score = clampScore(candidate.score + bonus.bonus);
     }
     const fallback = [...candidates].sort((a, b) => b.score - a.score)[0];
     const context = {
@@ -34,6 +46,8 @@ export class SimulationDecisionService {
         traits: npc.profile.traits,
       },
       state: npc.state,
+      memoryContext: buildMemoryContextSection(recalledMemories, null),
+      recalledMemories: recalledMemories.map((memory) => ({ id: memory.id, kind: memory.kind, content: memory.content, importance: memory.importance, reasons: memory.reasons })),
     };
     const publicCandidates: DecisionCandidate[] = candidates.map((candidate) => ({
       id: candidate.id,
@@ -81,7 +95,8 @@ export class SimulationDecisionService {
             agentId: npc.profile.id, role: "SIMULATION", status: "success", source: "ai",
             provider: this.provider.providerName, model: this.provider.model, context, candidates: publicCandidates,
             rawOutput, validationErrors, fallbackReason: null, finalActionId: action.id, finalReason: action.reason,
-            latencyMs: Date.now() - startedAt, attempts, usage: { inputTokens, outputTokens }, stateChanges: {}, createdAt: new Date().toISOString(),
+            latencyMs: Date.now() - startedAt, attempts, usage: { inputTokens, outputTokens }, stateChanges: {},
+            memoryBonus: Object.fromEntries(memoryBonuses), createdAt: new Date().toISOString(),
           }) };
         } catch (error) {
           fallbackReason = error instanceof Error ? error.message : "AI_REQUEST_FAILED";

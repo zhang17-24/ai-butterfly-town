@@ -177,6 +177,7 @@ export const AiTraceSchema = z.object({
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
   stateChanges: z.record(z.string(), z.object({ before: z.number(), after: z.number() })),
+  memoryBonus: z.record(z.string(), z.number()).optional(),
   createdAt: z.string(),
 });
 
@@ -368,6 +369,87 @@ export const RealtimeMessageSchema = z.discriminatedUnion("type", [
     event: TownEventSchema.nullable(),
   }),
 ]);
+
+export const MemoryEntrySchema = z.object({
+  id: z.string(),
+  worldId: z.string(),
+  agentId: z.string(),
+  kind: z.enum(["dialogue", "event", "action", "summary", "insight"]),
+  content: z.string(),
+  importance: z.number().int().min(1).max(100),
+  subject: z.string().nullable(),
+  worldMinute: z.number().int(),
+  metadataJson: z.string(),
+  sourceIdentifier: z.string(),
+  isArchived: z.boolean(),
+  createdAt: z.string(),
+});
+
+export const RecalledMemorySchema = z.object({
+  id: z.string(),
+  kind: z.enum(["dialogue", "event", "action", "summary", "insight"]),
+  content: z.string(),
+  importance: z.number().int().min(1).max(100),
+  subject: z.string().nullable(),
+  createdAt: z.number().int(),
+  score: z.object({
+    total: z.number(),
+    fts: z.number(),
+    importanceScaled: z.number(),
+    recency: z.number().nullable(),
+    objectBonus: z.number(),
+  }),
+  reasons: z.array(z.string()),
+});
+
+export const JobSchema = z.object({
+  id: z.string(),
+  worldId: z.string().nullable(),
+  kind: z.string(),
+  status: z.enum(["queued", "running", "succeeded", "failed"]),
+  stageIndex: z.number().int().nonnegative(),
+  stageLabel: z.string().nullable(),
+  progressPercent: z.number().min(0).max(100),
+  error: z.string().nullable(),
+  resultJson: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const CreateWorldInputSchema = z.object({
+  prompt: z.string().trim().min(1).max(200),
+  population: z.number().int().min(3).max(20).default(5),
+  style: z.string().default("qixi_pixel"),
+});
+
+export const SkipTimeInputSchema = z.object({
+  targetMinute: z.number().int().min(1).max(24 * 60 * 14),
+  expectedVersion: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(8).max(128),
+});
+
+export const BranchCreateInputSchema = z.object({
+  forkEventId: z.string().nullable().optional(),
+  expectedVersion: z.number().int().nonnegative().optional(),
+  idempotencyKey: z.string().min(8).max(128).optional(),
+});
+
+export const SkipResultSchema = z.object({
+  fromMinute: z.number().int(),
+  toMinute: z.number().int(),
+  stoppedByEmergency: z.boolean(),
+  stopEventId: z.string().nullable(),
+  snapshotsWritten: z.number().int(),
+  world: WorldSummarySchema,
+});
+
+export type MemoryEntry = z.infer<typeof MemoryEntrySchema>;
+export type RecalledMemory = z.infer<typeof RecalledMemorySchema>;
+export type Job = z.infer<typeof JobSchema>;
+export type CreateWorldInput = z.infer<typeof CreateWorldInputSchema>;
+export type SkipTimeInput = z.infer<typeof SkipTimeInputSchema>;
+export type BranchCreateInput = z.infer<typeof BranchCreateInputSchema>;
+export type SkipResult = z.infer<typeof SkipResultSchema>;
 
 export type Position = z.infer<typeof PositionSchema>;
 export type PixelStyleSpec = z.infer<typeof PixelStyleSpecSchema>;

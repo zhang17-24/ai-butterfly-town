@@ -16,6 +16,11 @@ export const worlds = sqliteTable("worlds", {
   version: integer("version").notNull().default(1),
   paused: integer("paused", { mode: "boolean" }).notNull().default(false),
   activeBranchId: text("active_branch_id"),
+  blueprintJson: text("blueprint_json"),
+  rulesJson: text("rules_json"),
+  assetJson: text("asset_json"),
+  mapPngB64: text("map_png_b64"),
+  genSeed: integer("gen_seed"),
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -99,7 +104,27 @@ export const memories = sqliteTable("memories", {
   kind: text("kind").notNull(),
   content: text("content").notNull(),
   metadataJson: text("metadata_json").notNull(),
+  worldMinute: integer("world_minute").notNull().default(0),
+  importance: integer("importance").notNull().default(40),
+  subject: text("subject"),
+  sourceIdentifier: text("source_identifier"),
+  isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
+});
+
+export const jobs = sqliteTable("jobs", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id"),
+  kind: text("kind").notNull(),
+  status: text("status").notNull().default("queued"),
+  payloadJson: text("payload_json").notNull().default("{}"),
+  resultJson: text("result_json"),
+  progressJson: text("progress_json"),
+  error: text("error"),
+  leaseExpiresAt: text("lease_expires_at"),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 export const knowledge = sqliteTable("knowledge", {

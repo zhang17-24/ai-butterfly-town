@@ -7,7 +7,7 @@ import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { EventCommitInputSchema, type RealtimeMessage } from "@ai-town/shared";
+import { BranchCreateInputSchema, CreateWorldInputSchema, EventCommitInputSchema, SkipTimeInputSchema, type RealtimeMessage } from "@ai-town/shared";
 import { openDatabase } from "./db/database.js";
 import { TownRepository } from "./db/repository.js";
 import { createSessionToken, SESSION_COOKIE, verifySessionToken } from "./auth/session.js";
@@ -20,6 +20,9 @@ import { DialogueDecisionService } from "./ai/dialogue-decider.js";
 import { buildEventPreview } from "./domain/event-preview.js";
 import { computeKnowledgeSpread } from "./domain/event-propagation.js";
 import { qixiBlueprint } from "./generation/qixi-blueprint.js";
+import { VisualGenerationOrchestrator } from "./generation/visual-orchestrator.js";
+import { JobWorker } from "./jobs/worker.js";
+import { buildGenerateWorldHandler } from "./jobs/generate-world-handler.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -66,6 +69,20 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   const decider = new SimulationDecisionService(aiProvider);
   const dialogueDecider = new DialogueDecisionService(aiProvider);
   const simulation = new SimulationService(repository, hub, config.tickMs, decider, config.simulationAi.maxDecisionsPerTick);
+  const visualOrchestrator = new VisualGenerationOrchestrator(
+    { enabled: false, async generateMap() { throw new Error("IMAGE_DISABLED"); } },
+    { enabled: false, async reviewMap() { throw new Error("VISION_DISABLED"); } },
+  );
+  const jobWorker = new JobWorker(repository, {
+    generate_world: buildGenerateWorldHandler(repository, visualOrchestrator),
+    skip_world: async (job, report) => {
+      const payload = JSON.parse(repository.getJobPayload(job.id)) as { worldId: string; targetMinute: number };
+      const result = await simulation.advanceTo(payload.worldId, payload.targetMinute, {
+        onProgress: (minute, total) => report(0, "SKIP", Math.min(99, Math.round((minute / total) * 100)), `${minute}/${total}`),
+      });
+      return { ...result, worldId: payload.worldId };
+    },
+  });
 
   app.get("/api/health", async () => ({
     status: "ok",
@@ -207,10 +224,13 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_MESSAGE", message: "请输入 1–500 个字符", recoverable: true, details: {} } });
     const context = repository.dialogueContext(request.userId!, request.params.sessionId);
     if (!context) return reply.code(404).send({ error: { code: "DIALOGUE_NOT_ACTIVE", message: "对话不存在或已经结束", recoverable: true, details: {} } });
+    const recalled = repository.recallMemories(context.world.id, context.npc.profile.id, parsed.data.content, {
+      worldTimeMinute: context.world.gameMinute, relatedAgentId: context.player.id, maxEntries: 6, maxChars: 600,
+    });
     const decided = await dialogueDecider.decide({
       npc: context.npc, world: context.world, player: context.player,
       relationshipSummary: context.relationshipSummary, recentMemories: context.recentMemories,
-      playerMessage: parsed.data.content,
+      recalledMemories: recalled, playerMessage: parsed.data.content,
     });
     const result = repository.sendDialogueMessage({
       userId: request.userId!, sessionId: request.params.sessionId, content: parsed.data.content,
@@ -298,6 +318,76 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     return repository.getCausalGraph(request.params.worldId, Number.isFinite(limit) ? Math.min(200, limit) : 40);
   });
 
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/blueprint", { preHandler: requireUser }, async (request, reply) => {
+    const result = repository.getWorldBlueprint(request.userId!, request.params.worldId);
+    if (!result) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    return { blueprint: result.blueprint, asset: result.asset, hasMapPng: Boolean(result.mapPngB64) };
+  });
+
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/map-image", { preHandler: requireUser }, async (request, reply) => {
+    const png = repository.getWorldMapPng(request.userId!, request.params.worldId);
+    if (!png) return reply.code(404).send({ error: { code: "MAP_NOT_FOUND", message: "该世界没有程序化地图", recoverable: true, details: {} } });
+    return reply.header("Content-Type", "image/png").header("Cache-Control", "public, max-age=86400").send(Buffer.from(png, "base64"));
+  });
+
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/snapshots", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    return repository.listSnapshots(request.params.worldId);
+  });
+
+  app.get<{ Params: { worldId: string; agentId: string }; Querystring: { kind?: string; limit?: string } }>(
+    "/api/worlds/:worldId/agents/:agentId/memories",
+    { preHandler: requireUser },
+    async (request, reply) => {
+      if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+      const limit = Number(request.query.limit ?? 20);
+      return repository.listMemories(request.params.worldId, request.params.agentId, {
+        kind: request.query.kind, limit: Number.isFinite(limit) ? limit : 20,
+      });
+    },
+  );
+
+  app.post("/api/worlds", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = CreateWorldInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_WORLD_INPUT", message: "请填写一句话世界描述（1–200 字）", recoverable: true, details: {} } });
+    const job = repository.createJob({ kind: "generate_world", payload: { ...parsed.data, userId: request.userId! } });
+    return reply.code(201).send(job);
+  });
+
+  app.get<{ Params: { jobId: string } }>("/api/worlds/jobs/:jobId", { preHandler: requireUser }, async (request, reply) => {
+    const job = repository.getJob(request.params.jobId);
+    if (!job) return reply.code(404).send({ error: { code: "JOB_NOT_FOUND", message: "作业不存在", recoverable: false, details: {} } });
+    return job;
+  });
+
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/skip", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = SkipTimeInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_SKIP", message: "跳过目标时间格式不正确", recoverable: true, details: {} } });
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const job = repository.createJob({ kind: "skip_world", worldId: request.params.worldId, payload: { worldId: request.params.worldId, targetMinute: parsed.data.targetMinute } });
+    return reply.code(202).send(job);
+  });
+
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/branches", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = BranchCreateInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_BRANCH", message: "分支请求格式不正确", recoverable: true, details: {} } });
+    const command = repository.executeCreateBranchCommand({ userId: request.userId!, worldId: request.params.worldId, forkEventId: parsed.data.forkEventId ?? null, expectedVersion: parsed.data.expectedVersion, idempotencyKey: parsed.data.idempotencyKey });
+    if (command.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    if (command.kind === "idempotency_conflict") return reply.code(409).send({ error: { code: "IDEMPOTENCY_KEY_REUSED", message: "同一个请求标识不能用于不同命令", recoverable: true, details: {} } });
+    if (command.kind === "version_conflict") return reply.code(409).send({ error: { code: "WORLD_VERSION_CONFLICT", message: "世界状态已经变化，请刷新后重试", recoverable: true, details: { currentVersion: command.currentVersion } } });
+    hub.broadcast(request.params.worldId, {
+      eventId: randomUUID(), worldId: request.params.worldId, branchId: command.world.activeBranchId, version: command.world.version,
+      emittedAt: new Date().toISOString(), type: "world.status", data: command.world, event: null,
+    } satisfies RealtimeMessage);
+    return command;
+  });
+
+  app.get<{ Params: { worldId: string }; Querystring: { role?: string; limit?: string } }>("/api/worlds/:worldId/agent-traces", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const limit = Number(request.query.limit ?? 30);
+    return repository.listWorldTraces(request.params.worldId, Number.isFinite(limit) ? limit : 30, request.query.role);
+  });
+
   if (config.serveWeb) {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const webDist = path.resolve(here, "../../web/dist");
@@ -310,11 +400,13 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
 
   app.addHook("onClose", async () => {
     simulation.stop();
+    jobWorker.stop();
     hub.close();
     database.close();
   });
 
   await app.ready();
   simulation.start();
-  return { app, config, repository, simulation, aiProvider };
+  jobWorker.start();
+  return { app, config, repository, simulation, aiProvider, jobWorker };
 }

@@ -312,3 +312,116 @@ describe("day-one vertical slice", () => {
   });
 
 });
+
+describe("memory, snapshot, skip, branch and world generation", () => {
+  async function loginAsDemo(built: Awaited<ReturnType<typeof buildApp>>): Promise<string> {
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const setCookie = login.headers["set-cookie"];
+    return (Array.isArray(setCookie) ? setCookie[0] : setCookie)!.split(";")[0];
+  }
+
+  it("writes event memories (W2) on commit and recalls them for dialogue", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const cookie = await loginAsDemo(built);
+
+    const preview = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/preview", headers: { cookie },
+      payload: { text: "暴雨预警发布，河岸市集取消" },
+    });
+    expect(preview.statusCode).toBe(200);
+    const state = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie } });
+    const commit = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/events/commit", headers: { cookie },
+      payload: { preview: preview.json().preview, expectedVersion: state.json().world.version, idempotencyKey: "memory-test-commit-01" },
+    });
+    expect(commit.statusCode).toBe(200);
+    expect(commit.json().affectedNpcs.length).toBeGreaterThan(0);
+
+    const first = commit.json().affectedNpcs[0];
+    const memories = await built.app.inject({
+      method: "GET", url: `/api/worlds/world_qixi_town/agents/${first.agentId}/memories`, headers: { cookie },
+    });
+    expect(memories.statusCode).toBe(200);
+    expect(memories.json().length).toBeGreaterThan(0);
+    const eventMemory = memories.json().find((memory: any) => memory.kind === "event");
+    expect(eventMemory).toBeTruthy();
+    expect(eventMemory.importance).toBeGreaterThanOrEqual(40);
+    expect(eventMemory.subject).toBeTruthy();
+    expect(eventMemory.sourceIdentifier).toContain("event:");
+  });
+
+  it("writes periodic snapshots during ticks and rollback via branch", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const cookie = await loginAsDemo(built);
+    const first = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie } });
+    const startMinute = first.json().world.gameMinute;
+    while (startMinute + 60 - (startMinute % 60) > built.repository.getSimulationState("world_qixi_town")!.world.gameMinute) {
+      await built.simulation.tick();
+    }
+    const snapshots = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/snapshots", headers: { cookie } });
+    expect(snapshots.statusCode).toBe(200);
+    expect(snapshots.json().length).toBeGreaterThanOrEqual(2);
+
+    const beforeBranch = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie } });
+    const preMinute = beforeBranch.json().world.gameMinute;
+    const branch = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/branches", headers: { cookie }, payload: {},
+    });
+    expect(branch.statusCode).toBe(200);
+    expect(branch.json().branch.id).not.toBe("branch_world_qixi_town_main");
+    expect(branch.json().world.activeBranchId).toBe(branch.json().branch.id);
+    expect(branch.json().world.paused).toBe(true);
+    expect(branch.json().world.gameMinute).toBeGreaterThanOrEqual(500);
+    expect(branch.json().world.gameMinute).toBeLessThanOrEqual(preMinute);
+  });
+
+  it("skips time asynchronously via job and restores pause state", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const cookie = await loginAsDemo(built);
+    const before = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie } });
+    const from = before.json().world.gameMinute;
+    const skip = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/skip", headers: { cookie },
+      payload: { targetMinute: from + 45, expectedVersion: before.json().world.version, idempotencyKey: "skip-test-0001" },
+    });
+    expect(skip.statusCode).toBe(202);
+    const jobId = skip.json().id;
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const job = await built.app.inject({ method: "GET", url: `/api/worlds/jobs/${jobId}`, headers: { cookie } });
+    expect(job.statusCode).toBe(200);
+    expect(job.json().status).toBe("succeeded");
+    const after = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie } });
+    expect(after.json().world.gameMinute).toBeGreaterThanOrEqual(from + 40);
+    expect(after.json().world.paused).toBe(false);
+  });
+
+  it("creates a generated world from one line and serves its blueprint and map", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const cookie = await loginAsDemo(built);
+    const create = await built.app.inject({
+      method: "POST", url: "/api/worlds", headers: { cookie },
+      payload: { prompt: "一座花田小村，有茶馆、果园和河畔舞台", population: 5, style: "qixi_pixel" },
+    });
+    expect(create.statusCode).toBe(201);
+    expect(create.json().kind).toBe("generate_world");
+    const jobId = create.json().id;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const job = await built.app.inject({ method: "GET", url: `/api/worlds/jobs/${jobId}`, headers: { cookie } });
+    expect(job.json().status).toBe("succeeded");
+    const worldId = job.json().resultJson ? JSON.parse(job.json().resultJson).worldId : null;
+    expect(worldId).toBeTruthy();
+    const worlds = await built.app.inject({ method: "GET", url: "/api/worlds", headers: { cookie } });
+    expect(worlds.json().some((world: any) => world.id === worldId)).toBe(true);
+    const blueprint = await built.app.inject({ method: "GET", url: `/api/worlds/${worldId}/blueprint`, headers: { cookie } });
+    expect(blueprint.statusCode).toBe(200);
+    expect(blueprint.json().blueprint.locations.length).toBeGreaterThanOrEqual(2);
+    expect(blueprint.json().hasMapPng).toBe(true);
+    const mapImage = await built.app.inject({ method: "GET", url: `/api/worlds/${worldId}/map-image`, headers: { cookie } });
+    expect(mapImage.statusCode).toBe(200);
+    expect(mapImage.headers["content-type"]).toBe("image/png");
+  });
+});

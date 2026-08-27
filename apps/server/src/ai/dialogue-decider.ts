@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { AiTraceSchema, DialogueDecisionOutputSchema, type AiTrace, type DialogueIntent, type Npc, type Player, type WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, DialogueDecisionOutputSchema, type AiTrace, type DialogueIntent, type Npc, type Player, type RecalledMemory, type WorldSummary } from "@ai-town/shared";
 import { createMockDialogueReply } from "../dialogue/mock-dialogue.js";
+import { buildMemoryContextSection } from "../memory/caption.js";
 import type { SimulationAIProvider } from "./provider.js";
 
 export interface DialogueDecision {
@@ -17,6 +18,7 @@ export interface DialogueDecideInput {
   player: Player;
   relationshipSummary: string | null;
   recentMemories: string[];
+  recalledMemories?: RecalledMemory[];
   playerMessage: string;
 }
 
@@ -39,6 +41,8 @@ export class DialogueDecisionService {
       playerName: input.player.name,
       relationship: input.relationshipSummary,
       recentMemories: input.recentMemories,
+      recalledMemories: input.recalledMemories?.map((memory) => ({ id: memory.id, kind: memory.kind, content: memory.content, importance: memory.importance, reasons: memory.reasons })) ?? [],
+      memorySection: buildMemoryContextSection(input.recalledMemories ?? [], { agentId: input.player.id, summary: input.relationshipSummary }),
       playerMessage: input.playerMessage,
     };
 
@@ -94,7 +98,7 @@ export class DialogueDecisionService {
     }
 
     attempts = Math.max(1, attempts);
-    const mockContent = createMockDialogueReply(input.npc, input.playerMessage);
+    const mockContent = createMockDialogueReply(input.npc, input.playerMessage, input.recalledMemories ?? []);
     const intent = mockIntent(input.playerMessage);
     return {
       content: mockContent,

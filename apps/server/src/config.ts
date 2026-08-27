@@ -14,6 +14,7 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
     apiStyle: "responses" | "chat";
+    chatPath?: string;
     timeoutMs: number;
     maxOutputTokens: number;
     maxConcurrency: number;
@@ -36,6 +37,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       baseUrl: process.env.AI_SIMULATION_BASE_URL ?? "https://api.openai.com/v1",
       model: process.env.AI_SIMULATION_MODEL ?? "",
       apiStyle: process.env.AI_SIMULATION_API_STYLE === "chat" ? "chat" : "responses",
+      chatPath: process.env.AI_SIMULATION_CHAT_PATH ?? "/chat/completions",
       timeoutMs: Number(process.env.AI_SIMULATION_TIMEOUT_MS ?? 2500),
       maxOutputTokens: Number(process.env.AI_SIMULATION_MAX_OUTPUT_TOKENS ?? 180),
       maxConcurrency: Number(process.env.AI_SIMULATION_MAX_CONCURRENCY ?? 2),

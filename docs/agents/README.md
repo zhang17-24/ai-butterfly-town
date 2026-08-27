@@ -28,7 +28,8 @@
 
 - HEAD `c166353`(本表更新后);M4-2 `f7a7cc4` → M5 `0bce62d` 已提交;**M1–M5 全部贯通**。
 - 未提交:E 的 `src/memory/*`(设计+9 代码文件+测试,进行中)、B 类工程件(部分已提交)、活跃会话的 provider/dialogue/README 改动、`docs/living-requirement-map.html`、`docs/remaining-requirements.md`、`docs/agents/memory-system-design.md` 等痕迹。
-- 当前红:`memory/importance.ts`(中间态,归 E);与其无关,其他会话勿碰该目录。
+- 红状态(03:55 观测):`memory/importance.ts` 已消;新红在 `apps/server/src/db/database.ts:210`(语法错误,串行区会话 04:01 活跃中间态,归属未登记);**串行区现被占用,其他会话勿进**。
+- 待决:`b755d3c chore: checkpoint commit` 已并入并行会话工作;`src/memory/*` 与 `docs/living-requirement-map.html`、`remaining-requirements.md` 尚未提交。
 
 ## 串行区(一次只允许一个会话修改)
 

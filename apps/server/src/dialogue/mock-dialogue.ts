@@ -1,9 +1,10 @@
 import type { Npc } from "@ai-town/shared";
 
-export function createMockDialogueReply(npc: Npc, message: string): string {
+export function createMockDialogueReply(npc: Npc, message: string, recalled: Array<{ createdAt: number; content: string; reasons: string[] }> = []): string {
   const text = message.trim();
   const topic = detectTopic(text);
   const prefix = moodPrefix(npc);
+  const memoryQuote = quoteMemory(recalled);
   const replies: Record<string, Record<string, string>> = {
     npc_lin_xia: {
       greeting: "你好。我正把市集事项重新排一遍，你来得正好。",
@@ -46,7 +47,20 @@ export function createMockDialogueReply(npc: Npc, message: string): string {
       unknown: "这个说法还缺来源和细节。你是亲眼看到的，还是听别人说的？",
     },
   };
-  return `${prefix}${replies[npc.profile.id]?.[topic] ?? replies[npc.profile.id]?.unknown ?? "你能再说具体一点吗？"}`;
+  return `${prefix}${replies[npc.profile.id]?.[topic] ?? replies[npc.profile.id]?.unknown ?? "你能再说具体一点吗？"}${memoryQuote}`;
+}
+
+/**
+ * §7.2 Mock 记忆注入:命中相关关键词且在召回中时,以「我记得…」过去式句架引用,
+ * 既展示记忆闭环,又不把旧经历当成当前事实。
+ */
+function quoteMemory(recalled: Array<{ createdAt: number; content: string; reasons: string[] }>): string {
+  if (recalled.length === 0) return "";
+  const hit = recalled[0];
+  const minute = hit.createdAt;
+  const hour = Math.floor((minute % (24 * 60)) / 60);
+  const timeLabel = hour < 12 ? "上午" : hour < 18 ? "下午" : "晚上";
+  return `（我记得${timeLabel}${String(hour).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}的时候——${hit.content.slice(0, 40)}…那是当时的事，现在情况未必一样。）`;
 }
 
 function detectTopic(message: string): "greeting" | "market" | "crisis" | "health" | "help" | "unknown" {

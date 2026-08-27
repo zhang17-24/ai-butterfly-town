@@ -1,13 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
-import type { AiTrace, CausalGraph, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, EventCommitResult, EventPreviewSpec, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
+import { and, asc, desc, eq, gt, isNull, lt } from "drizzle-orm";
+import type { AiTrace, CausalGraph, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, EventCommitResult, EventPreviewSpec, Job, MemoryEntry, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, RecalledMemory, TownEvent, WorldBlueprint, WorldState, WorldSummary } from "@ai-town/shared";
 import { AiTraceSchema, DialogueSessionSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, knowledge, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, jobs, knowledge, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
 import { computeKnowledgeSpread, type CausalEventSpec } from "../domain/event-propagation.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
 import { qixiBlueprint } from "../generation/qixi-blueprint.js";
 import { createNavigationGrid, findApproachPath, findPath } from "../navigation/a-star.js";
+import { computeSnapshotChecksum, shouldSnapshot } from "../timeline/snapshot-logic.js";
+import { computeMemoryImportance, type ImportanceInput } from "../memory/importance.js";
+import { retrieveMemories, type MemoryEntryView } from "../memory/retrieval.js";
+import type { WorldPackage } from "../generation/world-structure.js";
 
 export const eventSourceValues = ["system", "player", "ai", "mock"] as const;
 type EventSource = (typeof eventSourceValues)[number];
@@ -20,6 +24,18 @@ export type PendingWorldEvent = Omit<TownEvent, "id" | "branchId" | "version" | 
   source?: EventSource;
   causeIds?: string[];
 };
+
+export interface MemoryWriteRow {
+  worldId: string;
+  agentId: string;
+  kind: "dialogue" | "event" | "action" | "summary" | "insight";
+  content: string;
+  importance: number;
+  subject: string | null;
+  worldMinute: number;
+  sourceIdentifier: string;
+  metadataJson: string;
+}
 
 export type PauseCommandResult =
   | { kind: "ok"; world: WorldSummary; event: TownEvent | null; replayed: boolean }
@@ -158,6 +174,10 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     return this.handle.db.select({ id: worlds.id }).from(worlds).where(eq(worlds.paused, false)).all().map((row) => row.id);
   }
 
+  setPaused(worldId: string, paused: boolean): void {
+    this.handle.db.update(worlds).set({ paused, updatedAt: new Date().toISOString() }).where(eq(worlds.id, worldId)).run();
+  }
+
   getSimulationState(worldId: string): { world: WorldSummary; npcs: Npc[] } | null {
     const world = this.handle.db.select().from(worlds).where(eq(worlds.id, worldId)).get();
     if (!world) return null;
@@ -177,7 +197,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     };
   }
 
-  commitTick(worldId: string, expectedVersion: number, gameMinute: number, updatedNpcs: Npc[], newEvents: PendingWorldEvent[], newTraces: AiTrace[] = []): { world: WorldSummary; events: TownEvent[] } | null {
+  commitTick(worldId: string, expectedVersion: number, gameMinute: number, updatedNpcs: Npc[], newEvents: PendingWorldEvent[], newTraces: AiTrace[] = [], newMemories: MemoryWriteRow[] = []): { world: WorldSummary; events: TownEvent[]; snapshot: { id: string; reason: string } | null } | null {
     const now = new Date().toISOString();
     return this.handle.sqlite.transaction(() => {
       const current = this.handle.db.select().from(worlds).where(eq(worlds.id, worldId)).get();
@@ -228,9 +248,15 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
         }).run();
       }
       this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      for (const memory of newMemories) this.writeMemory(memory, now);
+      const summary = this.toWorldSummary({ ...current, gameMinute, version, activeBranchId: branchId }, updatedNpcs.length);
+      const headerEvent = committed.at(-1);
+      const headerEventType = headerEvent?.type ?? "";
+      const snapshot = this.maybeWriteSnapshot(worldId, branchId, version, gameMinute, headerEventType, summary, updatedNpcs, now);
       return {
-        world: this.toWorldSummary({ ...current, gameMinute, version, activeBranchId: branchId }, updatedNpcs.length),
+        world: summary,
         events: committed,
+        snapshot,
       };
     })();
   }
@@ -419,7 +445,17 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       const reply: DialogueMessage = { id: randomUUID(), sessionId: sessionRow.id, speakerId: npc.profile.id, content: input.reply.content, source: input.reply.source, createdAt: new Date(Date.now() + 1).toISOString() };
       for (const message of [playerMessage, reply]) this.handle.db.insert(dialogueMessages).values(message).run();
       const memoryContent = input.memory?.trim() || `玩家说：“${input.content.trim()}”`;
-      this.handle.db.insert(memories).values({ id: randomUUID(), worldId: sessionRow.worldId, agentId: npc.profile.id, kind: "dialogue", content: memoryContent, metadataJson: JSON.stringify({ sessionId: sessionRow.id, source: "player" }), createdAt: now }).run();
+      const tone = /暴雨|取消|事故|受伤|发烧|难受|难过|糟糕|停电|晚了/.test(input.content) ? "negative" as const : /开心|谢谢|太好了|喜欢|欢迎/.test(input.content) ? "positive" as const : "neutral" as const;
+      const importance = computeMemoryImportance({
+        kind: "dialogue", tone,
+        stateExtreme: Object.values({ hunger: npc.state.hunger, energy: npc.state.energy, mood: npc.state.mood, stress: npc.state.stress, social: npc.state.social }).some((v) => v < 20 || v > 85),
+      });
+      this.writeMemory({
+        worldId: sessionRow.worldId, agentId: npc.profile.id, kind: "dialogue", content: memoryContent,
+        importance, subject: playerRow.id, worldMinute: worldRow.gameMinute,
+        sourceIdentifier: `dialogue:${sessionRow.worldId}:${npc.profile.id}:${sessionRow.id}:${playerMessage.id}`,
+        metadataJson: JSON.stringify({ sessionId: sessionRow.id, counterpartNpcId: playerRow.id, tone, source: "player" }),
+      }, now);
       const relationId = `rel_${sessionRow.worldId}_${npc.profile.id}_${playerRow.id}`;
       const existing = this.handle.db.select().from(relationships).where(eq(relationships.id, relationId)).get();
       const previous = existing ? JSON.parse(existing.stateJson) as { familiarity?: number; liking?: number; trust?: number; respect?: number; summary?: string } : {};
@@ -508,6 +544,8 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now, gameMinute: spec.gameMinute ?? current.gameMinute }).where(eq(worlds.id, current.id)).run();
       this.insertEvent(event);
       this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      const eventMinute = spec.gameMinute ?? current.gameMinute;
+      const tone = /取消|暴雨|风暴|火灾|事故|停电|停水|受伤|失窃|警报|紧急/.test(spec.summary) ? "negative" as const : "neutral" as const;
       const affectedNpcs = diffs.map((diff) => {
         const knowledgeId = randomUUID();
         this.handle.db.insert(knowledge).values({
@@ -515,6 +553,19 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
           factJson: JSON.stringify({ ...diff.fact, eventId: event.id }), sourceEventId: event.id,
           confidence: Math.round(diff.confidence * 10) / 10, createdAt: now,
         }).run();
+        const isLivedThrough = diff.via === "involved" || diff.via === "sight"
+          || (diff.via === "public" && /暴雨|台风|雷雨|风暴|洪水|事故|火灾|停电|预警|警报/.test(spec.summary));
+        if (isLivedThrough) {
+          const importance = computeMemoryImportance({ kind: "event", eventType: spec.type, via: diff.via === "public" ? "sight" : diff.via, tone });
+          const lead = diff.via === "involved" ? "我亲历了：" : diff.via === "public" ? "全镇都听说了：" : "我目睹了：";
+          this.writeMemory({
+            worldId: current.id, agentId: diff.agentId, kind: "event",
+            content: `${lead}${clip(spec.summary, 70)}`,
+            importance, subject: spec.locationId ?? spec.involvedNpcIds[0] ?? diff.fact.locationId ?? null,
+            worldMinute: eventMinute, sourceIdentifier: `event:${current.id}:${diff.agentId}:${event.id}`,
+            metadataJson: JSON.stringify({ sourceEventId: event.id, locationId: spec.locationId ?? null, tone, importanceVia: "rule" }),
+          }, now);
+        }
         return { agentId: diff.agentId, knowledgeId, via: diff.via, confidence: Math.round(diff.confidence * 10) / 10 };
       });
       const npcCount = npcRows.length;
@@ -614,6 +665,207 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       eq(aiTraces.agentId, agentId),
     )).orderBy(desc(aiTraces.createdAt)).limit(Math.max(1, Math.min(50, limit))).all()
       .map((row) => AiTraceSchema.parse(JSON.parse(row.traceJson)));
+  }
+
+  listWorldTraces(worldId: string, limit = 30, role?: string): AiTrace[] {
+    const base = and(eq(aiTraces.worldId, worldId), role ? eq(aiTraces.role, role) : undefined);
+    return this.handle.db.select().from(aiTraces).where(base).orderBy(desc(aiTraces.createdAt)).limit(Math.max(1, Math.min(100, limit))).all()
+      .map((row) => AiTraceSchema.parse(JSON.parse(row.traceJson)));
+  }
+
+  writeMemory(row: MemoryWriteRow, now = new Date().toISOString()): void {
+    if (!row.sourceIdentifier) return;
+    if (row.worldMinute < 0) return;
+    const existing = this.handle.db.select({ id: memories.id }).from(memories).where(eq(memories.sourceIdentifier, row.sourceIdentifier)).get();
+    if (existing) return;
+    this.handle.db.insert(memories).values({
+      id: randomUUID(), worldId: row.worldId, agentId: row.agentId, kind: row.kind, content: clip(row.content, 240),
+      metadataJson: row.metadataJson, worldMinute: row.worldMinute, importance: Math.max(1, Math.min(100, Math.round(row.importance))),
+      subject: row.subject, sourceIdentifier: row.sourceIdentifier, isArchived: false, createdAt: now,
+    }).run();
+  }
+
+  listMemories(worldId: string, agentId: string, opts: { kind?: string; limit?: number; includeArchived?: boolean } = {}): MemoryEntry[] {
+    const limit = Math.max(1, Math.min(opts.limit ?? 20, 200));
+    const filters = [eq(memories.worldId, worldId), eq(memories.agentId, agentId)];
+    if (opts.kind) filters.push(eq(memories.kind, opts.kind));
+    if (!opts.includeArchived) filters.push(eq(memories.isArchived, false));
+    return this.handle.db.select().from(memories).where(and(...filters)).orderBy(desc(memories.worldMinute), desc(memories.createdAt)).limit(limit).all().map((row) => ({
+      id: row.id, worldId: row.worldId, agentId: row.agentId, kind: row.kind as MemoryEntry["kind"], content: row.content,
+      importance: row.importance, subject: row.subject, worldMinute: row.worldMinute, metadataJson: row.metadataJson,
+      sourceIdentifier: row.sourceIdentifier ?? "", isArchived: Boolean(row.isArchived), createdAt: row.createdAt,
+    }));
+  }
+
+  recallMemories(worldId: string, agentId: string, query: string, opts: { worldTimeMinute?: number | null; relatedAgentId?: string; locationId?: string; maxEntries?: number; maxChars?: number } = {}): RecalledMemory[] {
+    const rows = this.handle.db.select().from(memories).where(and(eq(memories.worldId, worldId), eq(memories.agentId, agentId), eq(memories.isArchived, false))).all();
+    const views: MemoryEntryView[] = rows.map((row) => ({
+      id: row.id, kind: row.kind as MemoryEntryView["kind"], content: row.content, importance: row.importance,
+      subject: row.subject, createdAtMinute: row.worldMinute, archived: Boolean(row.isArchived), sourceIdentifier: row.sourceIdentifier ?? null,
+    }));
+    return retrieveMemories(views, {
+      agentId, query,
+      worldTimeMinute: opts.worldTimeMinute === undefined ? null : opts.worldTimeMinute,
+      relatedAgentId: opts.relatedAgentId, locationId: opts.locationId,
+      budget: { maxEntries: opts.maxEntries ?? 6, maxChars: opts.maxChars ?? 600 },
+    });
+  }
+
+  createJob(input: { kind: string; worldId?: string | null; payload: Record<string, unknown> }): Job {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    this.handle.db.insert(jobs).values({
+      id, worldId: input.worldId ?? null, kind: input.kind, status: "queued", payloadJson: JSON.stringify(input.payload),
+      progressJson: JSON.stringify({ stageIndex: 0, stageLabel: "QUEUED", progressPercent: 0 }), attempts: 0, createdAt: now, updatedAt: now,
+    }).run();
+    return this.getJob(id)!;
+  }
+
+  getJob(jobId: string): Job | null {
+    const row = this.handle.db.select().from(jobs).where(eq(jobs.id, jobId)).get();
+    return row ? this.toJob(row) : null;
+  }
+
+  getJobPayload(jobId: string): string {
+    return this.handle.db.select({ payloadJson: jobs.payloadJson }).from(jobs).where(eq(jobs.id, jobId)).get()?.payloadJson ?? "{}";
+  }
+
+  claimJob(leaseMs = 60_000): Job | null {
+    const now = new Date().toISOString();
+    const expiredAt = new Date(new Date(now).getTime() - leaseMs).toISOString();
+    const next = this.handle.db.select().from(jobs).where(eq(jobs.status, "queued")).orderBy(asc(jobs.createdAt)).get()
+      ?? this.handle.db.select().from(jobs).where(and(eq(jobs.status, "running"), lt(jobs.leaseExpiresAt, expiredAt))).orderBy(asc(jobs.createdAt)).get();
+    if (!next) return null;
+    this.handle.db.update(jobs).set({
+      status: "running",
+      leaseExpiresAt: new Date(new Date(now).getTime() + leaseMs).toISOString(),
+      attempts: next.attempts + 1,
+      updatedAt: now,
+    }).where(eq(jobs.id, next.id)).run();
+    return this.getJob(next.id);
+  }
+
+  renewLease(jobId: string, leaseMs = 60_000): void {
+    this.handle.db.update(jobs).set({ leaseExpiresAt: new Date(Date.now() + leaseMs).toISOString(), updatedAt: new Date().toISOString() }).where(eq(jobs.id, jobId)).run();
+  }
+
+  updateJobProgress(jobId: string, patch: { stageIndex?: number; stageLabel?: string; progressPercent?: number; note?: string }): void {
+    const row = this.handle.db.select().from(jobs).where(eq(jobs.id, jobId)).get();
+    if (!row) return;
+    const current = row.progressJson ? JSON.parse(row.progressJson) as { stageIndex: number; stageLabel: string; progressPercent: number; note?: string } : { stageIndex: 0, stageLabel: "QUEUED", progressPercent: 0 };
+    this.handle.db.update(jobs).set({
+      progressJson: JSON.stringify({
+        stageIndex: patch.stageIndex ?? current.stageIndex,
+        stageLabel: patch.stageLabel ?? current.stageLabel,
+        progressPercent: patch.progressPercent ?? current.progressPercent,
+        note: patch.note ?? current.note,
+      }),
+      updatedAt: new Date().toISOString(),
+    }).where(eq(jobs.id, jobId)).run();
+  }
+
+  completeJob(jobId: string, result: Record<string, unknown>): void {
+    this.handle.db.update(jobs).set({ status: "succeeded", resultJson: JSON.stringify(result), updatedAt: new Date().toISOString() }).where(eq(jobs.id, jobId)).run();
+  }
+
+  failJob(jobId: string, error: string): void {
+    this.handle.db.update(jobs).set({ status: "failed", error: error.slice(0, 500), updatedAt: new Date().toISOString() }).where(eq(jobs.id, jobId)).run();
+  }
+
+  listSnapshots(worldId: string, limit = 20): Array<{ id: string; branchId: string; version: number; gameMinute: number; reason: string; checksum: string; createdAt: string }> {
+    return this.handle.db.select().from(snapshots).where(eq(snapshots.worldId, worldId)).orderBy(desc(snapshots.gameMinute), desc(snapshots.version)).limit(Math.max(1, Math.min(limit, 100))).all()
+      .map((row) => ({ id: row.id, branchId: row.branchId, version: row.version, gameMinute: row.gameMinute, reason: row.reason, checksum: row.checksum, createdAt: row.createdAt }));
+  }
+
+  createGeneratedWorld(input: { userId: string; pkg: WorldPackage; prompt: string; seed: number; mapPngB64: string | null }): WorldSummary {
+    const now = new Date().toISOString();
+    const worldId = input.pkg.worldId;
+    return this.handle.sqlite.transaction(() => {
+      this.handle.db.insert(worlds).values({
+        id: worldId, userId: input.userId, name: input.pkg.name, description: input.pkg.description,
+        gameMinute: 500, version: 1, paused: false, activeBranchId: this.mainBranchId(worldId),
+        blueprintJson: JSON.stringify(input.pkg.blueprint), rulesJson: JSON.stringify(input.pkg.rules ?? {}),
+        assetJson: JSON.stringify(input.pkg.asset ?? null), mapPngB64: input.mapPngB64, genSeed: input.seed,
+        updatedAt: now,
+      }).run();
+      const branchId = this.mainBranchId(worldId);
+      this.handle.db.insert(worldBranches).values({ id: branchId, worldId, parentBranchId: null, forkEventId: null, headVersion: 1, createdAt: now }).run();
+      for (const npc of input.pkg.npcs) {
+        this.handle.db.insert(npcs).values({ id: npc.profile.id, worldId, profileJson: JSON.stringify(npc.profile), stateJson: JSON.stringify(npc.state), updatedAt: now }).run();
+      }
+      const spawn = input.pkg.blueprint.spawnPoints[0]?.position ?? { x: 450, y: 310 };
+      this.handle.db.insert(players).values({ id: `player_${input.userId}_${worldId}`, worldId, userId: input.userId, name: "旅人", positionJson: JSON.stringify(spawn), updatedAt: now }).run();
+      const summary: WorldSummary = { id: worldId, name: input.pkg.name, description: input.pkg.description, gameMinute: 500, version: 1, paused: false, activeBranchId: branchId, npcCount: input.pkg.npcs.length };
+      const snapshotJson = JSON.stringify({ world: summary, npcs: input.pkg.npcs });
+      this.handle.db.insert(snapshots).values({ id: randomUUID(), worldId, branchId, version: 1, gameMinute: 500, reason: "initial", stateJson: snapshotJson, checksum: computeSnapshotChecksum(snapshotJson), createdAt: now }).run();
+      return summary;
+    })();
+  }
+
+  getWorldBlueprint(userId: string, worldId: string): { blueprint: WorldBlueprint; asset: Record<string, unknown> | null; mapPngB64: string | null } | null {
+    const world = this.handle.db.select().from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.userId, userId))).get();
+    if (!world) return null;
+    if (world.blueprintJson) return { blueprint: JSON.parse(world.blueprintJson) as WorldBlueprint, asset: world.assetJson ? JSON.parse(world.assetJson) : null, mapPngB64: world.mapPngB64 };
+    return { blueprint: qixiBlueprint, asset: null, mapPngB64: null };
+  }
+
+  getWorldMapPng(userId: string, worldId: string): string | null {
+    const world = this.handle.db.select({ mapPngB64: worlds.mapPngB64 }).from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.userId, userId))).get();
+    return world?.mapPngB64 ?? null;
+  }
+
+  executeCreateBranchCommand(input: { userId: string; worldId: string; forkEventId?: string | null; expectedVersion?: number; idempotencyKey?: string }): { kind: "ok"; branch: { id: string; parentBranchId: string; forkEventId: string | null; headVersion: number }; world: WorldSummary } | { kind: "not_found" } | { kind: "idempotency_conflict" } | { kind: "version_conflict"; currentVersion: number } {
+    return this.handle.sqlite.transaction(() => {
+      const current = this.handle.db.select().from(worlds).where(and(eq(worlds.id, input.worldId), eq(worlds.userId, input.userId))).get();
+      if (!current) return { kind: "not_found" } as const;
+      if (input.idempotencyKey) {
+        const receipt = this.handle.db.select().from(commandReceipts).where(eq(commandReceipts.idempotencyKey, input.idempotencyKey)).get();
+        if (receipt && receipt.commandType !== "world.branch") return { kind: "idempotency_conflict" } as const;
+      }
+      if (input.expectedVersion !== undefined && current.version !== input.expectedVersion) return { kind: "version_conflict", currentVersion: current.version } as const;
+      const now = new Date().toISOString();
+      const parentBranchId = current.activeBranchId ?? this.mainBranchId(current.id);
+      const forkEventId = input.forkEventId ?? null;
+      let snapshotRow: typeof snapshots.$inferSelect | undefined;
+      if (forkEventId) {
+        const forkEvent = this.handle.db.select().from(events).where(and(eq(events.id, forkEventId), eq(events.worldId, current.id))).get();
+        snapshotRow = forkEvent ? this.handle.db.select().from(snapshots).where(and(eq(snapshots.worldId, current.id), eq(snapshots.branchId, forkEvent.branchId ?? this.mainBranchId(current.id)), eq(snapshots.gameMinute, forkEvent.gameMinute))).get() : undefined;
+        snapshotRow = snapshotRow ?? this.handle.db.select().from(snapshots).where(and(eq(snapshots.worldId, current.id), eq(snapshots.gameMinute, forkEvent?.gameMinute ?? 0))).get();
+      }
+      const branchId = `branch_${current.id}_${randomUUID().slice(0, 8)}`;
+      this.handle.db.insert(worldBranches).values({ id: branchId, worldId: current.id, parentBranchId, forkEventId, headVersion: snapshotRow?.version ?? current.version, createdAt: now }).run();
+      const restoredGameMinute = snapshotRow?.gameMinute ?? current.gameMinute;
+      const restoredVersion = snapshotRow?.version ?? current.version;
+      if (snapshotRow) {
+        const state = JSON.parse(snapshotRow.stateJson) as { world: { npcCount?: number }; npcs?: Array<{ profile: NpcProfile; state: NpcState }> };
+        const rows = state.npcs ?? [];
+        for (const npc of rows) {
+          this.handle.db.update(npcs).set({ stateJson: JSON.stringify(npc.state), updatedAt: now }).where(and(eq(npcs.id, npc.profile.id), eq(npcs.worldId, current.id))).run();
+        }
+      }
+      this.handle.db.update(worlds).set({ activeBranchId: branchId, gameMinute: restoredGameMinute, version: restoredVersion, updatedAt: now }).where(eq(worlds.id, current.id)).run();
+      const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, current.id)).all().length;
+      const summary = this.toWorldSummary({ ...current, activeBranchId: branchId, gameMinute: restoredGameMinute, version: restoredVersion, paused: true }, npcCount);
+      this.handle.db.update(worlds).set({ paused: true }).where(eq(worlds.id, current.id)).run();
+      if (input.idempotencyKey) {
+        this.handle.db.insert(commandReceipts).values({ idempotencyKey: input.idempotencyKey, worldId: current.id, commandType: "world.branch", baseVersion: current.version, committedVersion: restoredVersion, responseJson: JSON.stringify({ branchId, world: summary }), createdAt: now }).run();
+      }
+      return { kind: "ok", branch: { id: branchId, parentBranchId, forkEventId, headVersion: restoredVersion }, world: { ...summary, paused: true } } as const;
+    })();
+  }
+
+  private maybeWriteSnapshot(worldId: string, branchId: string, version: number, gameMinute: number, eventType: string, summary: WorldSummary, npcs: Npc[], now: string): { id: string; reason: string } | null {
+    const decision = shouldSnapshot(version, gameMinute, eventType, this.getSnapshotCount(worldId));
+    if (!decision.should) return null;
+    const snapshotJson = JSON.stringify({ world: summary, npcs });
+    const id = randomUUID();
+    this.handle.db.insert(snapshots).values({ id, worldId, branchId, version, gameMinute, reason: decision.reason, stateJson: snapshotJson, checksum: computeSnapshotChecksum(snapshotJson), createdAt: now }).run();
+    return { id, reason: decision.reason };
+  }
+
+  private toJob(row: typeof jobs.$inferSelect): Job {
+    const progress = row.progressJson ? JSON.parse(row.progressJson) as { stageIndex: number; stageLabel: string; progressPercent: number } : { stageIndex: 0, stageLabel: "QUEUED", progressPercent: 0 };
+    return { id: row.id, worldId: row.worldId, kind: row.kind, status: row.status as Job["status"], stageIndex: progress.stageIndex, stageLabel: progress.stageLabel, progressPercent: Math.max(0, Math.min(100, progress.progressPercent)), error: row.error, resultJson: row.resultJson, createdAt: row.createdAt, updatedAt: row.updatedAt };
   }
 
   private getPlayer(userId: string, worldId: string): Player | null {

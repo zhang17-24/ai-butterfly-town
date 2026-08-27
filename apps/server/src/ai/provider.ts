@@ -23,6 +23,8 @@ export interface OpenAICompatibleProviderConfig {
   baseUrl: string;
   model: string;
   apiStyle: "responses" | "chat";
+  /** chat 风格下的完整路径(默认 /chat/completions;MiniMax 等兼容服务可用 /text/chatcompletion_v2) */
+  chatPath?: string;
   timeoutMs: number;
   maxOutputTokens: number;
   maxConcurrency: number;
@@ -118,7 +120,8 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
     };
 
     try {
-      const response = await this.fetchImpl(`${baseUrl}/${this.config.apiStyle === "responses" ? "responses" : "chat/completions"}`, {
+      const endpoint = this.config.apiStyle === "responses" ? `${baseUrl}/responses` : `${baseUrl}${this.config.chatPath ?? "/chat/completions"}`;
+      const response = await this.fetchImpl(endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
