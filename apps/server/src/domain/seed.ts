@@ -28,7 +28,7 @@ export const demoNpcs: SeedNpc[] = [
     state: {
       npcId: "npc_lin_xia",
       locationId: "cafe",
-      position: { x: 292, y: 184 },
+      position: { x: 265, y: 190 },
       currentAction: "整理市集清单",
       actionReason: "开店前先确认今天的准备事项。",
       actionEndsAtMinute: 500,
@@ -55,7 +55,7 @@ export const demoNpcs: SeedNpc[] = [
     state: {
       npcId: "npc_shen_zhiheng",
       locationId: "clinic",
-      position: { x: 680, y: 170 },
+      position: { x: 725, y: 190 },
       currentAction: "检查急救箱",
       actionReason: "市集前需要确认急救物资。",
       actionEndsAtMinute: 500,
@@ -82,7 +82,7 @@ export const demoNpcs: SeedNpc[] = [
     state: {
       npcId: "npc_he_jianguo",
       locationId: "grocery",
-      position: { x: 170, y: 440 },
+      position: { x: 265, y: 432 },
       currentAction: "清点饮料库存",
       actionReason: "市集会增加需求，先弄清库存再答应供货。",
       actionEndsAtMinute: 500,
@@ -136,7 +136,7 @@ export const demoNpcs: SeedNpc[] = [
     state: {
       npcId: "npc_tang_yucheng",
       locationId: "community",
-      position: { x: 720, y: 430 },
+      position: { x: 725, y: 410 },
       currentAction: "整理采访提纲",
       actionReason: "先准备问题，避免报道只剩热闹。",
       actionEndsAtMinute: 500,

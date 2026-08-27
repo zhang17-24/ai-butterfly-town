@@ -15,6 +15,7 @@ export interface SimulationAIProvider {
   readonly providerName: string;
   readonly model: string;
   completeDecision(request: StructuredDecisionRequest): Promise<StructuredDecisionResponse>;
+  completeDialogue(request: StructuredDecisionRequest): Promise<StructuredDecisionResponse>;
 }
 
 export interface OpenAICompatibleProviderConfig {
@@ -35,6 +36,18 @@ const decisionJsonSchema = {
     reason: { type: "string" },
   },
   required: ["actionId", "reason"],
+} as const;
+
+const dialogueJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reply: { type: "string" },
+    intent: { type: "string", enum: ["greeting", "chit_chat", "market", "health", "help", "leave", "unknown"] },
+    mentionedEntities: { type: "array", items: { type: "string" } },
+    memory: { type: "string" },
+  },
+  required: ["reply"],
 } as const;
 
 class Semaphore {
@@ -70,10 +83,15 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
 
   completeDecision(request: StructuredDecisionRequest): Promise<StructuredDecisionResponse> {
     if (!this.enabled) throw new Error("AI_NOT_CONFIGURED");
-    return this.semaphore.run(() => this.request(request));
+    return this.semaphore.run(() => this.request(request, decisionJsonSchema, "npc_decision"));
   }
 
-  private async request(request: StructuredDecisionRequest): Promise<StructuredDecisionResponse> {
+  completeDialogue(request: StructuredDecisionRequest): Promise<StructuredDecisionResponse> {
+    if (!this.enabled) throw new Error("AI_NOT_CONFIGURED");
+    return this.semaphore.run(() => this.request(request, dialogueJsonSchema, "npc_dialogue"));
+  }
+
+  private async request(request: StructuredDecisionRequest, jsonSchema: object, schemaName: string): Promise<StructuredDecisionResponse> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(100, this.config.timeoutMs));
     const baseUrl = this.config.baseUrl.replace(/\/$/, "");
@@ -85,7 +103,7 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
       instructions,
       input: JSON.stringify(request.input),
       text: {
-        format: { type: "json_schema", name: "npc_decision", strict: true, schema: decisionJsonSchema },
+        format: { type: "json_schema", name: schemaName, strict: true, schema: jsonSchema },
       },
       max_output_tokens: this.config.maxOutputTokens,
       store: false,
@@ -97,7 +115,7 @@ export class OpenAICompatibleProvider implements SimulationAIProvider {
       ],
       response_format: {
         type: "json_schema",
-        json_schema: { name: "npc_decision", strict: true, schema: decisionJsonSchema },
+        json_schema: { name: schemaName, strict: true, schema: jsonSchema },
       },
       max_tokens: this.config.maxOutputTokens,
     };

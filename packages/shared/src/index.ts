@@ -135,13 +135,30 @@ export const DecisionOutputSchema = z.object({
   reason: z.string().min(1).max(240),
 });
 
+export const DialogueIntentSchema = z.enum([
+  "greeting",
+  "chit_chat",
+  "market",
+  "health",
+  "help",
+  "leave",
+  "unknown",
+]);
+
+export const DialogueDecisionOutputSchema = z.object({
+  reply: z.string().min(1).max(400),
+  intent: DialogueIntentSchema.default("chit_chat"),
+  mentionedEntities: z.array(z.string().min(1).max(80)).max(6).optional(),
+  memory: z.string().min(1).max(240).optional(),
+});
+
 export const AiTraceSchema = z.object({
   id: z.string(),
   worldId: z.string(),
   branchId: z.string(),
   worldVersion: z.number().int().nonnegative(),
   agentId: z.string(),
-  role: z.literal("SIMULATION"),
+  role: z.enum(["SIMULATION", "DIALOGUE"]),
   status: z.enum(["success", "fallback"]),
   source: z.enum(["ai", "mock"]),
   provider: z.string(),
@@ -188,6 +205,7 @@ export const NpcStateSchema = z.object({
   currentAction: z.string(),
   actionReason: z.string(),
   actionEndsAtMinute: z.number().int(),
+  actionPath: z.array(PositionSchema).optional(),
   hunger: z.number().min(0).max(100),
   energy: z.number().min(0).max(100),
   mood: z.number().min(0).max(100),
@@ -232,6 +250,26 @@ export const TownEventSchema = z.object({
   createdAt: z.string(),
 });
 
+export const DialogueMessageSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  speakerId: z.string(),
+  content: z.string().min(1),
+  source: z.enum(["player", "ai", "mock", "system"]),
+  createdAt: z.string(),
+});
+
+export const DialogueSessionSchema = z.object({
+  id: z.string(),
+  worldId: z.string(),
+  playerId: z.string(),
+  npcId: z.string(),
+  status: z.enum(["active", "ended", "interrupted"]),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  messages: z.array(DialogueMessageSchema),
+});
+
 export const WorldSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -248,6 +286,29 @@ export const WorldStateSchema = z.object({
   player: PlayerSchema,
   npcs: z.array(NpcSchema),
   recentEvents: z.array(TownEventSchema),
+});
+
+export const DialogueStartResultSchema = z.object({
+  session: DialogueSessionSchema,
+  player: PlayerSchema,
+  npc: NpcSchema,
+  path: z.array(PositionSchema).min(1),
+  world: WorldSummarySchema,
+  event: TownEventSchema,
+});
+
+export const DialogueReplyResultSchema = z.object({
+  session: DialogueSessionSchema,
+  reply: DialogueMessageSchema,
+  world: WorldSummarySchema,
+  event: TownEventSchema,
+});
+
+export const DialogueEndResultSchema = z.object({
+  session: DialogueSessionSchema,
+  npc: NpcSchema,
+  world: WorldSummarySchema,
+  event: TownEventSchema,
 });
 
 export const WorldBranchSchema = z.object({
@@ -321,6 +382,8 @@ export type ActionIntent = z.infer<typeof ActionIntentSchema>;
 export type ActionDefinition = z.infer<typeof ActionDefinitionSchema>;
 export type DecisionCandidate = z.infer<typeof DecisionCandidateSchema>;
 export type DecisionOutput = z.infer<typeof DecisionOutputSchema>;
+export type DialogueIntent = z.infer<typeof DialogueIntentSchema>;
+export type DialogueDecisionOutput = z.infer<typeof DialogueDecisionOutputSchema>;
 export type AiTrace = z.infer<typeof AiTraceSchema>;
 export type NpcProfile = z.infer<typeof NpcProfileSchema>;
 export type NpcState = z.infer<typeof NpcStateSchema>;
@@ -328,8 +391,15 @@ export type Npc = z.infer<typeof NpcSchema>;
 export type Player = z.infer<typeof PlayerSchema>;
 export type PlayerMoveResult = z.infer<typeof PlayerMoveResultSchema>;
 export type TownEvent = z.infer<typeof TownEventSchema>;
+export type DialogueMessage = z.infer<typeof DialogueMessageSchema>;
+export type DialogueSession = z.infer<typeof DialogueSessionSchema>;
+export type DialogueStartResult = z.infer<typeof DialogueStartResultSchema>;
+export type DialogueReplyResult = z.infer<typeof DialogueReplyResultSchema>;
+export type DialogueEndResult = z.infer<typeof DialogueEndResultSchema>;
 export type WorldSummary = z.infer<typeof WorldSummarySchema>;
 export type WorldState = z.infer<typeof WorldStateSchema>;
 export type WorldBranch = z.infer<typeof WorldBranchSchema>;
 export type SnapshotMetadata = z.infer<typeof SnapshotMetadataSchema>;
 export type RealtimeMessage = z.infer<typeof RealtimeMessageSchema>;
+
+export { createNavigationGrid, type NavigationGrid } from "./navigation.js";

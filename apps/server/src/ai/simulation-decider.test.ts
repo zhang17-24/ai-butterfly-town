@@ -22,7 +22,8 @@ function provider(outputs: Array<StructuredDecisionResponse | Error>, enabled = 
     if (!next) throw new Error("missing stub output");
     return next;
   });
-  return { enabled, providerName: "test-provider", model: enabled ? "test-model" : "mock", completeDecision };
+  const completeDialogue = vi.fn(async () => ({ rawText: JSON.stringify({ reply: "你好，有什么可以帮你？" }), raw: null, usage: { inputTokens: 0, outputTokens: 0 } }));
+  return { enabled, providerName: "test-provider", model: enabled ? "test-model" : "mock", completeDecision, completeDialogue };
 }
 
 function response(value: unknown): StructuredDecisionResponse {

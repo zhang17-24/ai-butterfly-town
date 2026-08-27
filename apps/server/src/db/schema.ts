@@ -122,3 +122,22 @@ export const aiTraces = sqliteTable("ai_traces", {
   traceJson: text("trace_json").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const dialogueSessions = sqliteTable("dialogue_sessions", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id").notNull(),
+  playerId: text("player_id").notNull(),
+  npcId: text("npc_id").notNull(),
+  status: text("status").notNull(),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+});
+
+export const dialogueMessages = sqliteTable("dialogue_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  speakerId: text("speaker_id").notNull(),
+  content: text("content").notNull(),
+  source: text("source").notNull(),
+  createdAt: text("created_at").notNull(),
+});

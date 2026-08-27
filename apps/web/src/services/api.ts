@@ -1,4 +1,4 @@
-import { AiTraceSchema, PlayerMoveResultSchema, WorldStateSchema, WorldSummarySchema, type AiTrace, type PlayerMoveResult, type Position, type WorldState, type WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, DialogueEndResultSchema, DialogueReplyResultSchema, DialogueSessionSchema, DialogueStartResultSchema, PlayerMoveResultSchema, WorldStateSchema, WorldSummarySchema, type AiTrace, type DialogueEndResult, type DialogueReplyResult, type DialogueSession, type DialogueStartResult, type PlayerMoveResult, type Position, type WorldState, type WorldSummary } from "@ai-town/shared";
 
 class ApiRequestError extends Error {
   constructor(message: string, readonly code: string | undefined, readonly details: Record<string, unknown> | undefined) {
@@ -7,9 +7,11 @@ class ApiRequestError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
+  if (typeof options.body === "string") headers["Content-Type"] = "application/json";
   const response = await fetch(`/api${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
     ...options,
   });
   const body = await response.json().catch(() => ({}));
@@ -62,5 +64,28 @@ export const api = {
       const latest = WorldStateSchema.parse(await request<unknown>(`/worlds/${worldId}/state`));
       return PlayerMoveResultSchema.parse(await commit(latest.world.version));
     }
+  },
+  async startDialogue(worldId: string, npcId: string, expectedVersion: number): Promise<DialogueStartResult> {
+    const idempotencyKey = crypto.randomUUID();
+    const commit = (version: number) => request<unknown>(`/worlds/${worldId}/dialogues/start`, {
+      method: "POST", body: JSON.stringify({ npcId, expectedVersion: version, idempotencyKey }),
+    });
+    try {
+      return DialogueStartResultSchema.parse(await commit(expectedVersion));
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.code !== "WORLD_VERSION_CONFLICT") throw error;
+      const latest = WorldStateSchema.parse(await request<unknown>(`/worlds/${worldId}/state`));
+      return DialogueStartResultSchema.parse(await commit(latest.world.version));
+    }
+  },
+  async activeDialogue(worldId: string): Promise<DialogueSession | null> {
+    const result = await request<unknown>(`/worlds/${worldId}/dialogues/active`);
+    return result === null ? null : DialogueSessionSchema.parse(result);
+  },
+  async sendDialogueMessage(sessionId: string, content: string): Promise<DialogueReplyResult> {
+    return DialogueReplyResultSchema.parse(await request<unknown>(`/dialogues/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content }) }));
+  },
+  async endDialogue(sessionId: string): Promise<DialogueEndResult> {
+    return DialogueEndResultSchema.parse(await request<unknown>(`/dialogues/${sessionId}/end`, { method: "POST" }));
   },
 };

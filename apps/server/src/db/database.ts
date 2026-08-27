@@ -127,6 +127,25 @@ CREATE TABLE IF NOT EXISTS ai_traces (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_traces_world ON ai_traces(world_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS dialogue_sessions (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL,
+  player_id TEXT NOT NULL,
+  npc_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dialogue_sessions_world ON dialogue_sessions(world_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS dialogue_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  speaker_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dialogue_messages_session ON dialogue_messages(session_id, created_at);
 `;
 
 function ensureColumn(sqlite: Database.Database, table: string, column: string, definition: string): void {

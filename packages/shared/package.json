@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./qixi-blueprint": "./src/qixi-blueprint.ts",
+    "./navigation": "./src/navigation.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -18,4 +20,3 @@
     "typescript": "^5.9.2"
   }
 }
-

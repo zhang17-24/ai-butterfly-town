@@ -1,15 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull } from "drizzle-orm";
-import type { AiTrace, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
-import { AiTraceSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
+import type { AiTrace, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, TownEvent, WorldState, WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, DialogueSessionSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { aiTraces, commandReceipts, events, npcs, players, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
 import { qixiBlueprint } from "../generation/qixi-blueprint.js";
-import { createNavigationGrid, findPath } from "../navigation/a-star.js";
+import { createNavigationGrid, findApproachPath, findPath } from "../navigation/a-star.js";
 
 export const eventSourceValues = ["system", "player", "ai", "mock"] as const;
 type EventSource = (typeof eventSourceValues)[number];
+
+function clip(value: string, max = 80): string {
+  return value.trim().slice(0, max);
+}
 
 export type PendingWorldEvent = Omit<TownEvent, "id" | "branchId" | "version" | "createdAt" | "schemaVersion" | "source" | "causeIds"> & {
   source?: EventSource;
@@ -27,6 +31,13 @@ export type MovePlayerCommandResult =
   | { kind: "not_found" }
   | { kind: "unreachable" }
   | { kind: "idempotency_conflict" }
+  | { kind: "version_conflict"; currentVersion: number };
+
+export type StartDialogueCommandResult =
+  | { kind: "ok"; result: DialogueStartResult; replayed: boolean }
+  | { kind: "not_found" }
+  | { kind: "busy" }
+  | { kind: "unreachable" }
   | { kind: "version_conflict"; currentVersion: number };
 
 export interface WorldRepository {
@@ -315,6 +326,175 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     })();
   }
 
+  executeStartDialogueCommand(input: { userId: string; worldId: string; npcId: string; expectedVersion: number; idempotencyKey: string }): StartDialogueCommandResult {
+    return this.handle.sqlite.transaction(() => {
+      const current = this.handle.db.select().from(worlds).where(and(eq(worlds.id, input.worldId), eq(worlds.userId, input.userId))).get();
+      if (!current) return { kind: "not_found" } as const;
+      const receipt = this.handle.db.select().from(commandReceipts).where(eq(commandReceipts.idempotencyKey, input.idempotencyKey)).get();
+      if (receipt?.commandType === "dialogue.start" && receipt.worldId === input.worldId) {
+        return { kind: "ok", result: JSON.parse(receipt.responseJson) as DialogueStartResult, replayed: true } as const;
+      }
+      if (current.version !== input.expectedVersion) return { kind: "version_conflict", currentVersion: current.version } as const;
+      const playerRow = this.handle.db.select().from(players).where(and(eq(players.worldId, input.worldId), eq(players.userId, input.userId))).get();
+      const npcRow = this.handle.db.select().from(npcs).where(and(eq(npcs.worldId, input.worldId), eq(npcs.id, input.npcId))).get();
+      if (!playerRow || !npcRow) return { kind: "not_found" } as const;
+      const active = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.playerId, playerRow.id), eq(dialogueSessions.status, "active"))).get();
+      if (active) return { kind: "busy" } as const;
+      const player = this.toPlayer(playerRow);
+      const npc: Npc = { profile: NpcProfileSchema.parse(JSON.parse(npcRow.profileJson)), state: NpcStateSchema.parse(JSON.parse(npcRow.stateJson)) };
+      const approach = findApproachPath(createNavigationGrid(qixiBlueprint), player.position, npc.state.position);
+      if (!approach) return { kind: "unreachable" } as const;
+
+      const now = new Date().toISOString();
+      const version = current.version + 1;
+      const branchId = current.activeBranchId ?? this.mainBranchId(current.id);
+      const movedPlayer: Player = { ...player, position: approach.destination };
+      const talkingNpc: Npc = { ...npc, state: { ...npc.state, currentAction: "与你交谈", actionReason: "玩家来到身边并开始交谈。", actionEndsAtMinute: current.gameMinute + 30 } };
+      const session: DialogueSession = { id: randomUUID(), worldId: current.id, playerId: player.id, npcId: npc.profile.id, status: "active", startedAt: now, endedAt: null, messages: [] };
+      const event: TownEvent = {
+        id: randomUUID(), worldId: current.id, branchId, version, gameMinute: current.gameMinute,
+        type: "dialogue.started", actorId: player.id, summary: `你走近${npc.profile.name}并开始交谈`, source: "player",
+        causeIds: [], schemaVersion: 1, payload: { sessionId: session.id, npcId: npc.profile.id, path: approach.path }, createdAt: now,
+      };
+      this.handle.db.update(players).set({ positionJson: JSON.stringify(approach.destination), updatedAt: now }).where(eq(players.id, player.id)).run();
+      this.handle.db.update(npcs).set({ stateJson: JSON.stringify(talkingNpc.state), updatedAt: now }).where(eq(npcs.id, npc.profile.id)).run();
+      this.handle.db.insert(dialogueSessions).values({ id: session.id, worldId: session.worldId, playerId: session.playerId, npcId: session.npcId, status: session.status, startedAt: now, endedAt: null }).run();
+      this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now }).where(eq(worlds.id, current.id)).run();
+      this.insertEvent(event);
+      this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, current.id)).all().length;
+      const result: DialogueStartResult = { session, player: movedPlayer, npc: talkingNpc, path: approach.path, world: this.toWorldSummary({ ...current, version, activeBranchId: branchId }, npcCount), event };
+      this.handle.db.insert(commandReceipts).values({ idempotencyKey: input.idempotencyKey, worldId: current.id, commandType: "dialogue.start", baseVersion: input.expectedVersion, committedVersion: version, responseJson: JSON.stringify(result), createdAt: now }).run();
+      return { kind: "ok", result, replayed: false } as const;
+    })();
+  }
+
+  dialogueContext(userId: string, sessionId: string): { npc: Npc; player: Player; world: WorldSummary; relationshipSummary: string | null; recentMemories: string[] } | null {
+    const sessionRow = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.id, sessionId), eq(dialogueSessions.status, "active"))).get();
+    if (!sessionRow) return null;
+    const playerRow = this.handle.db.select().from(players).where(and(eq(players.id, sessionRow.playerId), eq(players.userId, userId))).get();
+    const npcRow = this.handle.db.select().from(npcs).where(eq(npcs.id, sessionRow.npcId)).get();
+    const worldRow = this.handle.db.select().from(worlds).where(eq(worlds.id, sessionRow.worldId)).get();
+    if (!playerRow || !npcRow || !worldRow) return null;
+    const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, worldRow.id)).all().length;
+    const relation = this.handle.db.select().from(relationships).where(eq(relationships.id, `rel_${worldRow.id}_${npcRow.id}_${playerRow.id}`)).get();
+    const relationshipSummary = relation ? (JSON.parse(relation.stateJson) as { summary?: string }).summary ?? null : null;
+    const recentMemories = this.handle.db
+      .select({ content: memories.content })
+      .from(memories)
+      .where(and(eq(memories.worldId, worldRow.id), eq(memories.agentId, npcRow.id)))
+      .orderBy(desc(memories.createdAt))
+      .limit(5)
+      .all()
+      .map((row) => row.content);
+    return {
+      npc: { profile: NpcProfileSchema.parse(JSON.parse(npcRow.profileJson)), state: NpcStateSchema.parse(JSON.parse(npcRow.stateJson)) },
+      player: this.toPlayer(playerRow),
+      world: this.toWorldSummary(worldRow, npcCount),
+      relationshipSummary,
+      recentMemories,
+    };
+  }
+
+  sendDialogueMessage(input: { userId: string; sessionId: string; content: string; memory?: string | null; reply: { content: string; source: "ai" | "mock" }; trace?: AiTrace | null }): DialogueReplyResult | null {
+    return this.handle.sqlite.transaction(() => {
+      const sessionRow = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.id, input.sessionId), eq(dialogueSessions.status, "active"))).get();
+      if (!sessionRow) return null;
+      const playerRow = this.handle.db.select().from(players).where(and(eq(players.id, sessionRow.playerId), eq(players.userId, input.userId))).get();
+      const npcRow = this.handle.db.select().from(npcs).where(eq(npcs.id, sessionRow.npcId)).get();
+      const worldRow = this.handle.db.select().from(worlds).where(eq(worlds.id, sessionRow.worldId)).get();
+      if (!playerRow || !npcRow || !worldRow) return null;
+      const npc: Npc = { profile: NpcProfileSchema.parse(JSON.parse(npcRow.profileJson)), state: NpcStateSchema.parse(JSON.parse(npcRow.stateJson)) };
+      const now = new Date().toISOString();
+      const version = worldRow.version + 1;
+      const branchId = worldRow.activeBranchId ?? this.mainBranchId(worldRow.id);
+      const playerMessage: DialogueMessage = { id: randomUUID(), sessionId: sessionRow.id, speakerId: playerRow.id, content: input.content.trim(), source: "player", createdAt: now };
+      const reply: DialogueMessage = { id: randomUUID(), sessionId: sessionRow.id, speakerId: npc.profile.id, content: input.reply.content, source: input.reply.source, createdAt: new Date(Date.now() + 1).toISOString() };
+      for (const message of [playerMessage, reply]) this.handle.db.insert(dialogueMessages).values(message).run();
+      const memoryContent = input.memory?.trim() || `玩家说：“${input.content.trim()}”`;
+      this.handle.db.insert(memories).values({ id: randomUUID(), worldId: sessionRow.worldId, agentId: npc.profile.id, kind: "dialogue", content: memoryContent, metadataJson: JSON.stringify({ sessionId: sessionRow.id, source: "player" }), createdAt: now }).run();
+      const relationId = `rel_${sessionRow.worldId}_${npc.profile.id}_${playerRow.id}`;
+      const existing = this.handle.db.select().from(relationships).where(eq(relationships.id, relationId)).get();
+      const previous = existing ? JSON.parse(existing.stateJson) as { familiarity?: number; liking?: number; trust?: number; respect?: number; summary?: string } : {};
+      const relation = {
+        familiarity: Math.min(100, (previous.familiarity ?? 5) + 2), liking: previous.liking ?? 50,
+        trust: Math.min(100, (previous.trust ?? 45) + 1), respect: previous.respect ?? 50,
+        labels: ["见过的居民"], summary: `最近与玩家谈到：${input.content.trim().slice(0, 60)}`,
+      };
+      if (existing) this.handle.db.update(relationships).set({ stateJson: JSON.stringify(relation), updatedAt: now }).where(eq(relationships.id, relationId)).run();
+      else this.handle.db.insert(relationships).values({ id: relationId, worldId: sessionRow.worldId, sourceAgentId: npc.profile.id, targetAgentId: playerRow.id, stateJson: JSON.stringify(relation), updatedAt: now }).run();
+      const event: TownEvent = {
+        id: randomUUID(), worldId: worldRow.id, branchId, version, gameMinute: worldRow.gameMinute,
+        type: "dialogue.message", actorId: playerRow.id,
+        summary: `${npc.profile.name}回应你：${clip(input.reply.content)}`,
+        source: input.reply.source, causeIds: [], schemaVersion: 1,
+        payload: { sessionId: sessionRow.id, npcId: npc.profile.id, message: clip(input.content), reply: clip(input.reply.content), replySource: input.reply.source },
+        createdAt: now,
+      };
+      this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now }).where(eq(worlds.id, worldRow.id)).run();
+      this.insertEvent(event);
+      this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      if (input.trace) {
+        this.handle.db.insert(aiTraces).values({
+          id: input.trace.id, worldId: input.trace.worldId, branchId: input.trace.branchId,
+          agentId: input.trace.agentId, role: input.trace.role, status: input.trace.status,
+          traceJson: JSON.stringify(input.trace), createdAt: input.trace.createdAt,
+        }).run();
+      }
+      const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, worldRow.id)).all().length;
+      return {
+        session: this.getDialogueSession(sessionRow.id)!,
+        reply,
+        world: this.toWorldSummary({ ...worldRow, version, activeBranchId: branchId }, npcCount),
+        event,
+      };
+    })();
+  }
+
+  getActiveDialogue(userId: string, worldId: string): DialogueSession | null {
+    const player = this.handle.db.select().from(players).where(and(eq(players.userId, userId), eq(players.worldId, worldId))).get();
+    if (!player) return null;
+    const session = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.playerId, player.id), eq(dialogueSessions.status, "active"))).orderBy(desc(dialogueSessions.startedAt)).get();
+    return session ? this.getDialogueSession(session.id) : null;
+  }
+
+  getActiveDialogueNpcIds(worldId: string): string[] {
+    return this.handle.db
+      .select({ npcId: dialogueSessions.npcId })
+      .from(dialogueSessions)
+      .where(and(eq(dialogueSessions.worldId, worldId), eq(dialogueSessions.status, "active")))
+      .all()
+      .map((row) => row.npcId);
+  }
+
+  endDialogue(input: { userId: string; sessionId: string }): DialogueEndResult | null {
+    return this.handle.sqlite.transaction(() => {
+      const session = this.handle.db.select().from(dialogueSessions).where(and(eq(dialogueSessions.id, input.sessionId), eq(dialogueSessions.status, "active"))).get();
+      if (!session) return null;
+      const player = this.handle.db.select().from(players).where(and(eq(players.id, session.playerId), eq(players.userId, input.userId))).get();
+      const world = this.handle.db.select().from(worlds).where(eq(worlds.id, session.worldId)).get();
+      const npcRow = this.handle.db.select().from(npcs).where(eq(npcs.id, session.npcId)).get();
+      if (!player || !world || !npcRow) return null;
+      const now = new Date().toISOString();
+      const state = NpcStateSchema.parse(JSON.parse(npcRow.stateJson));
+      const npc: Npc = { profile: NpcProfileSchema.parse(JSON.parse(npcRow.profileJson)), state: { ...state, currentAction: "结束交谈", actionReason: "对话结束，准备根据当前状态重新规划。", actionEndsAtMinute: world.gameMinute } };
+      const version = world.version + 1;
+      const branchId = world.activeBranchId ?? this.mainBranchId(world.id);
+      const event: TownEvent = {
+        id: randomUUID(), worldId: world.id, branchId, version, gameMinute: world.gameMinute,
+        type: "dialogue.ended", actorId: player.id, summary: `你结束了与${npc.profile.name}的交谈`, source: "player",
+        causeIds: [], schemaVersion: 1, payload: { sessionId: session.id, npcId: npc.profile.id }, createdAt: now,
+      };
+      this.handle.db.update(npcs).set({ stateJson: JSON.stringify(npc.state), updatedAt: now }).where(eq(npcs.id, session.npcId)).run();
+      this.handle.db.update(dialogueSessions).set({ status: "ended", endedAt: now }).where(eq(dialogueSessions.id, session.id)).run();
+      this.handle.db.update(worlds).set({ version, activeBranchId: branchId, updatedAt: now }).where(eq(worlds.id, world.id)).run();
+      this.insertEvent(event);
+      this.handle.db.update(worldBranches).set({ headVersion: version }).where(eq(worldBranches.id, branchId)).run();
+      const npcCount = this.handle.db.select().from(npcs).where(eq(npcs.worldId, world.id)).all().length;
+      return { session: this.getDialogueSession(session.id)!, npc, world: this.toWorldSummary({ ...world, version, activeBranchId: branchId }, npcCount), event };
+    })();
+  }
+
   listEventsAfter(worldId: string, branchId: string, afterVersion: number, limit: number): TownEvent[] {
     return this.handle.db.select().from(events).where(and(
       eq(events.worldId, worldId),
@@ -339,6 +519,13 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
   private getPlayer(userId: string, worldId: string): Player | null {
     const row = this.handle.db.select().from(players).where(and(eq(players.worldId, worldId), eq(players.userId, userId))).get();
     return row ? this.toPlayer(row) : null;
+  }
+
+  private getDialogueSession(sessionId: string): DialogueSession | null {
+    const row = this.handle.db.select().from(dialogueSessions).where(eq(dialogueSessions.id, sessionId)).get();
+    if (!row) return null;
+    const messages = this.handle.db.select().from(dialogueMessages).where(eq(dialogueMessages.sessionId, row.id)).orderBy(asc(dialogueMessages.createdAt)).all();
+    return DialogueSessionSchema.parse({ ...row, messages });
   }
 
   private toPlayer(row: typeof players.$inferSelect): Player {

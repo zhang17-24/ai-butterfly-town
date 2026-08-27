@@ -1,12 +1,13 @@
 import type { Npc, NpcState } from "@ai-town/shared";
 
+// 落点刻意取在建筑/河流外的可走格（临近入口的道路上），由 a-star 测试保证可达
 const destinations = {
-  cafe: { locationId: "cafe", position: { x: 292, y: 184 } },
-  clinic: { locationId: "clinic", position: { x: 680, y: 170 } },
-  grocery: { locationId: "grocery", position: { x: 170, y: 440 } },
+  cafe: { locationId: "cafe", position: { x: 265, y: 190 } },
+  clinic: { locationId: "clinic", position: { x: 725, y: 190 } },
+  grocery: { locationId: "grocery", position: { x: 265, y: 432 } },
   riverside: { locationId: "riverside", position: { x: 470, y: 345 } },
-  community: { locationId: "community", position: { x: 720, y: 430 } },
-  apartment: { locationId: "apartment", position: { x: 610, y: 540 } },
+  community: { locationId: "community", position: { x: 725, y: 410 } },
+  apartment: { locationId: "apartment", position: { x: 725, y: 540 } },
 } as const;
 
 export interface MockAction {

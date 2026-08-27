@@ -90,6 +90,50 @@ describe("day-one vertical slice", () => {
     expect(unchanged.world.version).toBe(restored.world.version);
   });
 
+  it("auto-approaches an NPC, persists Mock dialogue, locks the participant and writes memory", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const setCookie = login.headers["set-cookie"];
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(";")[0];
+    const before = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    const started = await built.app.inject({
+      method: "POST", url: "/api/worlds/world_qixi_town/dialogues/start", headers: { cookie: cookie! },
+      payload: { npcId: "npc_lin_xia", expectedVersion: before.world.version, idempotencyKey: "dialogue-start-0001" },
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({ session: { status: "active", npcId: "npc_lin_xia" }, npc: { state: { currentAction: "与你交谈" } } });
+    expect(started.json().path.length).toBeGreaterThan(1);
+
+    const sent = await built.app.inject({
+      method: "POST", url: `/api/dialogues/${started.json().session.id}/messages`, headers: { cookie: cookie! },
+      payload: { content: "河岸市集准备得怎么样？" },
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().session.messages).toHaveLength(2);
+    expect(sent.json().reply).toMatchObject({ source: "mock", speakerId: "npc_lin_xia" });
+    expect(sent.json().reply.content).toContain("任务");
+    expect(sent.json().world.version).toBe(started.json().world.version + 1);
+    expect(sent.json().event).toMatchObject({ type: "dialogue.message", source: "mock", payload: { sessionId: started.json().session.id, npcId: "npc_lin_xia" } });
+    expect(built.repository.raw.prepare("SELECT COUNT(*) AS count FROM memories WHERE agent_id = ?").get("npc_lin_xia")).toEqual({ count: 1 });
+    expect(built.repository.raw.prepare("SELECT COUNT(*) AS count FROM relationships WHERE source_agent_id = ?").get("npc_lin_xia")).toEqual({ count: 1 });
+    expect(built.repository.raw.prepare("SELECT COUNT(*) AS count FROM events WHERE type = ? AND source = ?").get("dialogue.message", "mock")).toEqual({ count: 1 });
+    expect(built.repository.raw.prepare("SELECT COUNT(*) AS count FROM ai_traces WHERE agent_id = ? AND role = ?").get("npc_lin_xia", "DIALOGUE")).toEqual({ count: 1 });
+
+    await built.simulation.tick();
+    const whileTalking = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    expect(whileTalking.world.gameMinute).toBe(before.world.gameMinute + 1);
+    expect(whileTalking.npcs.find((npc: any) => npc.profile.id === "npc_lin_xia").state.currentAction).toBe("与你交谈");
+    const active = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/dialogues/active", headers: { cookie: cookie! } });
+    expect(active.json().messages).toHaveLength(2);
+
+    const ended = await built.app.inject({ method: "POST", url: `/api/dialogues/${started.json().session.id}/end`, headers: { cookie: cookie! } });
+    expect(ended.statusCode).toBe(200);
+    expect(ended.json()).toMatchObject({ session: { status: "ended" }, npc: { state: { currentAction: "结束交谈" } } });
+    const noActive = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/dialogues/active", headers: { cookie: cookie! } });
+    expect(noActive.json()).toBeNull();
+  });
+
   it("commits a versioned pause command once for the same idempotency key", async () => {
     const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
     activeApp = built.app;
@@ -196,5 +240,16 @@ describe("day-one vertical slice", () => {
       branchId: "branch_world_qixi_town_main",
       version: current.version,
     });
+  });
+
+  it("carries an A* approach path when NPCs decide to move", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const cookie = (Array.isArray(login.headers["set-cookie"]) ? login.headers["set-cookie"][0] : login.headers["set-cookie"])?.split(";")[0];
+    await built.simulation.tick();
+    const state = (await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/state", headers: { cookie: cookie! } })).json();
+    const moving = state.npcs.filter((npc: any) => Array.isArray(npc.state.actionPath) && npc.state.actionPath.length > 1);
+    expect(moving.length).toBeGreaterThan(0);
   });
 });

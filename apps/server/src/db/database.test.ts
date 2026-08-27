@@ -36,9 +36,11 @@ describe("database migrations", () => {
     const worldColumns = migrated.sqlite.prepare("PRAGMA table_info(worlds)").all() as Array<{ name: string }>;
     const eventColumns = migrated.sqlite.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
     const playerTable = migrated.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'players'").get();
+    const dialogueTables = migrated.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'dialogue_%' ORDER BY name").all();
     expect(worldColumns.map((column) => column.name)).toContain("active_branch_id");
     expect(eventColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["branch_id", "source", "cause_ids_json", "schema_version"]));
     expect(playerTable).toEqual({ name: "players" });
+    expect(dialogueTables).toEqual([{ name: "dialogue_messages" }, { name: "dialogue_sessions" }]);
     expect(migrated.sqlite.prepare("SELECT description, version FROM worlds WHERE id = ?").get("legacy-world")).toEqual({ description: "保留我", version: 7 });
     expect(migrated.sqlite.prepare("SELECT summary FROM events WHERE id = ?").get("legacy-event")).toEqual({ summary: "旧事件" });
     migrated.close();

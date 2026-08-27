@@ -16,6 +16,7 @@ import { SimulationService } from "./simulation/simulation-service.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { OpenAICompatibleProvider } from "./ai/provider.js";
 import { SimulationDecisionService } from "./ai/simulation-decider.js";
+import { DialogueDecisionService } from "./ai/dialogue-decider.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -34,6 +35,12 @@ const MovePlayerSchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
   idempotencyKey: z.string().min(8).max(128),
 });
+const StartDialogueSchema = z.object({
+  npcId: z.string().min(1),
+  expectedVersion: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(8).max(128),
+});
+const DialogueMessageInputSchema = z.object({ content: z.string().trim().min(1).max(500) });
 
 export async function buildApp(overrides: Partial<AppConfig> = {}) {
   const config = loadConfig(overrides);
@@ -54,6 +61,7 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   hub.attach(app.server);
   const aiProvider = new OpenAICompatibleProvider(config.simulationAi);
   const decider = new SimulationDecisionService(aiProvider);
+  const dialogueDecider = new DialogueDecisionService(aiProvider);
   const simulation = new SimulationService(repository, hub, config.tickMs, decider, config.simulationAi.maxDecisionsPerTick);
 
   app.get("/api/health", async () => ({
@@ -167,6 +175,60 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
       } satisfies RealtimeMessage);
     }
     return command.result;
+  });
+
+  app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/dialogues/start", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = StartDialogueSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_DIALOGUE", message: "对话请求格式不正确", recoverable: true, details: {} } });
+    const command = repository.executeStartDialogueCommand({ userId: request.userId!, worldId: request.params.worldId, ...parsed.data });
+    if (command.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_PLAYER_OR_NPC_NOT_FOUND", message: "世界、玩家或居民不存在", recoverable: false, details: {} } });
+    if (command.kind === "busy") return reply.code(409).send({ error: { code: "DIALOGUE_ALREADY_ACTIVE", message: "请先结束当前对话", recoverable: true, details: {} } });
+    if (command.kind === "unreachable") return reply.code(422).send({ error: { code: "NPC_UNREACHABLE", message: "暂时找不到可以接近这名居民的路线", recoverable: true, details: {} } });
+    if (command.kind === "version_conflict") return reply.code(409).send({ error: { code: "WORLD_VERSION_CONFLICT", message: "世界状态已经变化，请刷新后重试", recoverable: true, details: { currentVersion: command.currentVersion } } });
+    if (!command.replayed) {
+      hub.broadcast(command.result.world.id, {
+        eventId: command.result.event.id, worldId: command.result.world.id, branchId: command.result.world.activeBranchId,
+        version: command.result.world.version, emittedAt: new Date().toISOString(), type: "world.status",
+        data: command.result.world, event: command.result.event,
+      } satisfies RealtimeMessage);
+    }
+    return command.result;
+  });
+
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/dialogues/active", { preHandler: requireUser }, async (request) => {
+    return repository.getActiveDialogue(request.userId!, request.params.worldId);
+  });
+
+  app.post<{ Params: { sessionId: string } }>("/api/dialogues/:sessionId/messages", { preHandler: requireUser }, async (request, reply) => {
+    const parsed = DialogueMessageInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_MESSAGE", message: "请输入 1–500 个字符", recoverable: true, details: {} } });
+    const context = repository.dialogueContext(request.userId!, request.params.sessionId);
+    if (!context) return reply.code(404).send({ error: { code: "DIALOGUE_NOT_ACTIVE", message: "对话不存在或已经结束", recoverable: true, details: {} } });
+    const decided = await dialogueDecider.decide({
+      npc: context.npc, world: context.world, player: context.player,
+      relationshipSummary: context.relationshipSummary, recentMemories: context.recentMemories,
+      playerMessage: parsed.data.content,
+    });
+    const result = repository.sendDialogueMessage({
+      userId: request.userId!, sessionId: request.params.sessionId, content: parsed.data.content,
+      memory: decided.memory, reply: { content: decided.content, source: decided.source }, trace: decided.trace,
+    });
+    if (!result) return reply.code(404).send({ error: { code: "DIALOGUE_NOT_ACTIVE", message: "对话不存在或已经结束", recoverable: true, details: {} } });
+    hub.broadcast(result.world.id, {
+      eventId: result.event.id, worldId: result.world.id, branchId: result.world.activeBranchId,
+      version: result.world.version, emittedAt: new Date().toISOString(), type: "world.status", data: result.world, event: result.event,
+    } satisfies RealtimeMessage);
+    return result;
+  });
+
+  app.post<{ Params: { sessionId: string } }>("/api/dialogues/:sessionId/end", { preHandler: requireUser }, async (request, reply) => {
+    const result = repository.endDialogue({ userId: request.userId!, sessionId: request.params.sessionId });
+    if (!result) return reply.code(404).send({ error: { code: "DIALOGUE_NOT_ACTIVE", message: "对话不存在或已经结束", recoverable: true, details: {} } });
+    hub.broadcast(result.world.id, {
+      eventId: result.event.id, worldId: result.world.id, branchId: result.world.activeBranchId,
+      version: result.world.version, emittedAt: new Date().toISOString(), type: "world.status", data: result.world, event: result.event,
+    } satisfies RealtimeMessage);
+    return result;
   });
 
   if (config.serveWeb) {

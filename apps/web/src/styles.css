@@ -89,6 +89,8 @@ a { color: inherit; text-decoration: none; }
 .top-actions { display: flex; justify-content: flex-end; gap: 9px; }
 .top-actions button, .mode-chip { padding: 8px 11px; border: 1px solid #3b4c42; border-radius: 8px; color: #d5dfd8; background: #223229; font-size: 11px; }
 .mode-chip { color: #c8dfaa; }
+.walkable-toggle { color: #bfe8f2; }
+.walkable-toggle.on { color: #0e3340; background: #57d7f2; border-color: #57d7f2; box-shadow: 0 0 0 1px #57d7f2; }
 .world-layout { display: grid; height: calc(100vh - 68px); min-height: 612px; grid-template-columns: minmax(0, 1fr) 320px; }
 .map-stage { position: relative; display: grid; min-width: 0; min-height: 0; padding: 12px; place-items: center; overflow: hidden; }
 .town-canvas { width: min(100%, 900px); height: auto; aspect-ratio: 45 / 31; overflow: hidden; border-radius: 14px; background: #bfd9c2; box-shadow: inset 0 0 0 1px rgba(31,65,45,.15); }
@@ -141,6 +143,31 @@ a { color: inherit; text-decoration: none; }
 .trace-card dt { color: #849087; font-size: 8px; }
 .trace-card dd { overflow: hidden; margin: 2px 0 0; color: #3f4d44; font-size: 9px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .fallback-reason { padding: 8px; border-radius: 7px; color: #815e36; background: #f5ebdc; font-size: 9px; line-height: 1.5; }
+.dialogue-entry { display: grid; gap: 7px; margin: 16px 0; }
+.dialogue-entry button { padding: 11px; border: 0; border-radius: 9px; color: #f4fbf6; background: #315f47; font-weight: 700; }
+.dialogue-entry button:disabled { opacity: .55; }
+.dialogue-entry span, .dialogue-entry p { margin: 0; color: #7d8981; font-size: 10px; line-height: 1.5; }
+.dialogue-entry p, .dialogue-error { color: #9a4e3d; }
+.dialogue-panel { margin: 17px 0; padding: 14px; border: 1px solid #dce5dd; border-radius: 12px; background: #f3f7f2; }
+.dialogue-heading { display: flex; justify-content: space-between; align-items: center; }
+.dialogue-heading div { display: grid; gap: 2px; }
+.dialogue-heading span { color: #839187; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.dialogue-heading b { color: #263d30; font-size: 13px; }
+.dialogue-heading button { padding: 5px 8px; border: 1px solid #cbd7cd; border-radius: 7px; color: #637168; background: #fff; font-size: 9px; }
+.dialogue-messages { display: grid; max-height: 260px; margin: 12px 0; gap: 8px; overflow-y: auto; }
+.dialogue-empty { margin: 5px 0; color: #77857b; font-size: 10px; line-height: 1.6; text-align: center; }
+.dialogue-bubble { display: grid; max-width: 88%; gap: 3px; }
+.dialogue-bubble.mine { justify-self: end; }
+.dialogue-bubble span { color: #829087; font-size: 8px; }
+.dialogue-bubble.mine span { text-align: right; }
+.dialogue-bubble p { margin: 0; padding: 8px 10px; border-radius: 9px 9px 9px 3px; color: #32433a; background: #fff; font-size: 10px; line-height: 1.55; }
+.dialogue-bubble.mine p { color: #eff8f1; background: #3c6b50; border-radius: 9px 9px 3px; }
+.dialogue-quick { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 8px; }
+.dialogue-quick button { flex: 0 0 auto; padding: 5px 7px; border: 1px solid #d4dfd6; border-radius: 999px; color: #53685a; background: #fff; font-size: 8px; }
+.dialogue-form { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.dialogue-form input { min-width: 0; padding: 9px 10px; border: 1px solid #ccd8ce; border-radius: 8px; background: #fff; font-size: 10px; }
+.dialogue-form button { padding: 0 11px; border: 0; border-radius: 8px; color: #fff; background: #315f47; font-size: 10px; }
+.dialogue-error { margin: 7px 0 0; font-size: 9px; }
 .trace-card details { margin-top: 12px; }
 .trace-card summary { color: #4d6455; font-size: 9px; font-weight: 700; cursor: pointer; }
 .candidate-list { display: grid; gap: 4px; margin-top: 8px; }

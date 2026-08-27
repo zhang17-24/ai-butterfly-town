@@ -1,31 +1,9 @@
-import type { Position, WorldBlueprint } from "@ai-town/shared";
+import type { Position } from "@ai-town/shared";
+import { createNavigationGrid, type NavigationGrid } from "@ai-town/shared";
+
+export { createNavigationGrid, type NavigationGrid } from "@ai-town/shared";
 
 type Cell = { column: number; row: number };
-
-export interface NavigationGrid {
-  tileSize: number;
-  columns: number;
-  rows: number;
-  walkable: boolean[][];
-}
-
-export function createNavigationGrid(blueprint: WorldBlueprint): NavigationGrid {
-  const { width, height, tileSize } = blueprint.canvas;
-  const columns = Math.ceil(width / tileSize);
-  const rows = Math.ceil(height / tileSize);
-  const blockingLocations = blueprint.locations.filter((location) => location.kind === "building" || location.kind === "water");
-  const bridgePaths = blueprint.paths.filter((path) => path.id.includes("bridge"));
-  const walkable = Array.from({ length: rows }, (_, row) => Array.from({ length: columns }, (_, column) => {
-    const point = cellCenter({ column, row }, tileSize);
-    const blocked = blockingLocations.some((location) => point.x >= location.bounds.x
-      && point.x <= location.bounds.x + location.bounds.width
-      && point.y >= location.bounds.y
-      && point.y <= location.bounds.y + location.bounds.height);
-    if (!blocked) return true;
-    return bridgePaths.some((path) => pointNearPolyline(point, path.points, path.width / 2));
-  }));
-  return { tileSize, columns, rows, walkable };
-}
 
 export function findPath(grid: NavigationGrid, from: Position, to: Position): Position[] | null {
   const start = toCell(from, grid);
@@ -50,6 +28,33 @@ export function findPath(grid: NavigationGrid, from: Position, to: Position): Po
     }
   }
   return null;
+}
+
+export function findNearestWalkable(grid: NavigationGrid, target: Position): Position {
+  if (isWalkable(grid, toCell(target, grid))) return target;
+  for (const radius of [10, 20, 30, 40, 60, 80, 100, 140, 180, 240]) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.707, 0.707], [0.707, -0.707], [-0.707, 0.707], [-0.707, -0.707]]) {
+      const point = { x: Math.round(target.x + Number(dx) * radius), y: Math.round(target.y + Number(dy) * radius) };
+      if (isWalkable(grid, toCell(point, grid))) return point;
+    }
+  }
+  return target;
+}
+
+export function findApproachPath(grid: NavigationGrid, from: Position, target: Position): { destination: Position; path: Position[]; distance: number } | null {
+  const candidates: Position[] = [];
+  for (const radius of [50, 70, 90, 120, 160, 200]) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [0.7, -0.7], [-0.7, 0.7], [-0.7, -0.7]]) {
+      candidates.push({ x: Math.round(target.x + Number(dx) * radius), y: Math.round(target.y + Number(dy) * radius) });
+    }
+  }
+  return candidates
+    .map((destination) => {
+      const path = findPath(grid, from, destination);
+      return path ? { destination, path, distance: Math.hypot(destination.x - target.x, destination.y - target.y) } : null;
+    })
+    .filter((item): item is { destination: Position; path: Position[]; distance: number } => Boolean(item))
+    .sort((a, b) => a.distance - b.distance || a.path.length - b.path.length)[0] ?? null;
 }
 
 function reconstruct(cameFrom: Map<string, Cell>, goal: Cell, tileSize: number, from: Position, to: Position): Position[] {
@@ -87,16 +92,4 @@ function cellCenter(cell: Cell, tileSize: number): Position {
 
 function isWalkable(grid: NavigationGrid, cell: Cell): boolean {
   return cell.column >= 0 && cell.row >= 0 && cell.column < grid.columns && cell.row < grid.rows && grid.walkable[cell.row][cell.column];
-}
-
-function pointNearPolyline(point: Position, points: Position[], radius: number): boolean {
-  return points.slice(1).some((end, index) => distanceToSegment(point, points[index], end) <= radius);
-}
-
-function distanceToSegment(point: Position, start: Position, end: Position): number {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
-  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
