@@ -456,49 +456,8 @@ CI 在提交时执行 lint、类型检查、离线测试与生产构建。真实
 
 ## 17. 当前实现审计
 
-### 已完成（Day 1）
+### 现状(2026-08-28 更新)
 
-- pnpm Monorepo、共享 Zod 类型；
-- 简单账号密码登录与签名 Cookie；
-- 内置栖溪镇、5 名差异化 NPC 和地图；
-- Phaser 地图、NPC 选择与信息抽屉；
-- 规则效用 + 固定扰动的可解释 Mock 决策；
-- 连续时钟、暂停/继续；
-- SQLite/WAL 持久化，Tick 内事务提交；
-- WebSocket 快照与 Tick 推送；
-- 单元和 API 集成测试、`pnpm verify`。
-
-### 已完成（M2）
-
-- 共享 `ActionDefinition/ActionIntent/AppError` 与版本化实时消息 Schema；
-- 兼容旧库的增量迁移，以及 Branch、Snapshot、Command Receipt、Relationship、Memory、Knowledge、AI Trace 最小表；
-- 所有现有世界自动获得默认主分支和带 SHA-256 校验和的初始快照；
-- Tick 与暂停命令在事务内校验世界版本，状态、事件、分支头版本原子提交；
-- 暂停命令支持幂等键，重复请求只产生一次状态变化和事件；
-- WebSocket 信封包含事件、世界、分支、版本和发送时间，支持 `afterVersion` 恢复；
-- 客户端拒绝过期实时消息，版本冲突时拉取最新状态并安全重试一次；
-- 自动化覆盖旧库迁移、初始快照、幂等、版本冲突、事务回滚和 WebSocket 恢复。
-
-### 已完成（M3）
-
-- OpenAI-compatible Responses/Chat 双协议 Provider，按环境变量配置模型、超时、Token 与并发；
-- 规则引擎生成 5 个合法候选，模型只能返回候选 ID 与简短理由；
-- Structured Output 请求、Zod/引用校验、一次修复和两次请求尝试；
-- 无 Key、无模型、超时、HTTP 错误、坏 JSON、非法动作与 Tick 预算耗尽时自动 Mock；
-- 每 Tick 真实调用预算与轮换机制，避免 5–20 名 NPC 同时高频调用；
-- AI Trace 与世界 Tick 同事务保存，包含最小上下文、候选、输出、校验、耗时、Token、降级原因与状态差异；
-- NPC 抽屉展示真实 AI/Mock 来源、模型、耗时、尝试次数、候选评分和校验错误；
-- 自动化覆盖 Provider HTTP 契约、非法引用修复、超时、无配置和预算降级；Ego Lite 覆盖真实 HTTP、修复、超时和无 Key 页面路径。
-
-### 尚未完成且必须诚实标注
-
-- NPC 当前在新动作开始时直接切换位置，尚未走服务端 A* 路径；
-- 已有默认分支和初始快照地基，但还没有周期快照、历史分支操作与因果边；
-- NPC 尚无独立计划、记忆、知识和关系持久层；
-- WORLD Provider、真实 IMAGE/VISION HTTP Provider、世界生成 Job 和完整 AI 工作台尚未接入；
-- 玩家实体、Blueprint 室外网格、服务端 A* 与版本化移动命令正在 M4 落地；自动接近、对话和事件注入尚未实现；
-- 视觉编排契约、预生成图片和程序化人物降级已实现；持久化生成 Job 尚未实现；
-- 当前只有 3 个路由，因果页、创建页和 AI 工作台待建；
-- OpenAPI、E2E、故障注入、CI、Docker、部署与视频待完成。
-
-具体执行顺序、验收门槛和风险裁剪见 [实现规划](./implementation-plan.md)。
+- **已完成**:M1 可玩基架、M2 版本化持久化(迁移/幂等/事务/WS 恢复)、M3 真实 AI 决策+降级+Trace、M4-1 服务端权威 A* 移动、M4-2 NPC 对话(会话/参与者锁/AI+Mock/消息事件与版本/Trace 入库/内存关系写入)、M7 生成管线内部(WorldGenerator 与结构校验,已单测未接线)、M9 工程件(CI、delivery:check、Dockerfile/compose、README 交付节,容器化仍受 shared 包 `src` 导出阻塞)。
+- **剩余项统一见 [remaining-requirements.md](./remaining-requirements.md)**;主线优先级:M5 事件注入与因果链(接线中)→ M6 快照/跳过/分支 → M7 接线(创建页/Job Worker) → M8 AI 工作台 → M9 收尾(OpenAPI/E2E/视频/Docker)。
+- 并行开发协调见 `docs/agents/README.md`。

@@ -3,7 +3,7 @@
 > 规划状态：Draft for review  
 > 需求基线：**Living Requirement Map v1.5（D01–D132）**
 > 执行原则：核心纵向切片优先，内置世界与动态生成双轨交付  
-> 当前节点：M3、视觉生成纵向切片与 M4-1 玩家移动已完成；M4-2 对话下一步
+> 当前节点：M1–M4（含对话切片）、M9 工程件已落地；M5 事件注入接线进行中（剩余项统一见 docs/remaining-requirements.md）
 
 ## 1. 规划目标
 
@@ -431,4 +431,4 @@ docs: finalize demo guide and decision ledger
 
 ---
 
-M3 与 WorldX 审阅后的视觉纵向切片已经完成。依据 Living Requirement Map v1.5 D18–D22、D26、D82、D95 与 D132，当前回到 M4 P0 主流程：先完成玩家持久化和权威 A* 移动验收，再实现自动接近与真实/Mock 对话；真实 IMAGE/VISION HTTP Provider 留在 M7 继续。
+M4(玩家移动与对话)与 M9 工程件已提交;M5 事件注入与因果链接线进行中(领域层纯函数已完成),其后依序为 M6 快照/分支、M7 接线(WORLD/Job)、M8 工作台与 M9 收尾;真实 IMAGE/VISION HTTP Provider 留在 M7。
