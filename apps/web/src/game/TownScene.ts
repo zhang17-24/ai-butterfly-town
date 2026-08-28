@@ -87,7 +87,7 @@ export class TownScene extends Phaser.Scene {
     const imageUrl = this.mapImageUrl!;
     this.load.image(key, imageUrl);
     this.load.once(Phaser.Loader.Events.COMPLETE, () => {
-      if (!this.scene.isActive()) return;
+      if (!this.scene || !this.scene.isActive()) return;
       this.attachMapImage(key);
     });
     this.load.start();
@@ -129,7 +129,7 @@ export class TownScene extends Phaser.Scene {
   }
 
   applyNpcs(npcs: Npc[]): void {
-    if (!this.scene.isActive()) return;
+    if (!this.scene || !this.scene.isActive()) return;
     for (const npc of npcs) {
       let marker = this.markers.get(npc.profile.id);
       if (!marker) {
@@ -264,7 +264,7 @@ export class TownScene extends Phaser.Scene {
   }
 
   applyPlayer(player: Player | null, path: Position[] = []): void {
-    if (!this.scene.isActive() || !player) return;
+    if (!this.scene || !this.scene.isActive() || !player) return;
     if (!this.playerMarker) {
       const halo = this.add.ellipse(0, 13, 34, 14, 0x68d5ff, 0.48).setStrokeStyle(2, 0xeaffff, 0.9);
       const { avatar, spriteKey } = this.createAvatar("player", "#285f83");

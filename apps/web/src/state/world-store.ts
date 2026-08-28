@@ -27,7 +27,7 @@ export const useWorldStore = create<WorldStore>((set) => ({
   connected: false,
   selectedNpcId: null,
   setConnected: (connected) => set({ connected }),
-  setSelectedNpc: (selectedNpcId) => set({ selectedNpcId }),
+  setSelectedNpc: (selectedNpcId) => set((state) => (state.selectedNpcId === selectedNpcId ? state : { selectedNpcId })),
   applyPlayerMove: (result) => set((state) => ({
     player: result.player,
     playerPath: result.path,

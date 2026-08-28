@@ -117,8 +117,9 @@ export function WorldPage() {
   }, [initial.data]);
 
   useEffect(() => {
-    if (activeDialogue.data) store.setSelectedNpc(activeDialogue.data.npcId);
-  }, [activeDialogue.data, store]);
+    // 用 getState 取 action(引用稳定),仅当对话数据变化时同步选中 NPC,避免与 store 订阅形成自激循环。
+    if (activeDialogue.data) useWorldStore.getState().setSelectedNpc(activeDialogue.data.npcId);
+  }, [activeDialogue.data]);
 
   useEffect(() => {
     const listener = (event: Event) => store.setSelectedNpc((event as CustomEvent<string>).detail);
