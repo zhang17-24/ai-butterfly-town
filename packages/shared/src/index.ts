@@ -420,6 +420,8 @@ export const CreateWorldInputSchema = z.object({
   prompt: z.string().trim().min(1).max(200),
   population: z.number().int().min(3).max(20).default(5),
   style: z.string().default("qixi_pixel"),
+  /** 真实 AI 生图(Seedream):较慢(数分钟);关闭或未配 Key 时用程序化地图 */
+  aiArt: z.boolean().default(true),
 });
 
 export const SkipTimeInputSchema = z.object({

@@ -110,6 +110,9 @@ export const api = {
   async causalGraph(worldId: string): Promise<CausalGraph> {
     return CausalGraphSchema.parse(await request<unknown>(`/worlds/${worldId}/causal`));
   },
+  async worldAssets(worldId: string): Promise<Array<{ kind: string; agentId: string | null; url: string | null }>> {
+    return request<Array<{ kind: string; agentId: string | null; url: string | null }>>(`/worlds/${worldId}/assets`);
+  },
   async createWorld(input: CreateWorldInput): Promise<Job> {
     return JobSchema.parse(await request<unknown>("/worlds", {
       method: "POST",

@@ -90,6 +90,28 @@ describe("day-one vertical slice", () => {
     expect(unchanged.world.version).toBe(restored.world.version);
   });
 
+  it("deduplicates identical memory writes within one world day and re-writes after the window", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const row = (worldMinute: number, sourceIdentifier: string) => ({
+      worldId: "world_qixi_town", agentId: "npc_lin_xia", kind: "action" as const,
+      content: "我完成了：回公寓休息（在apartment）", importance: 40,
+      subject: "apartment", worldMinute, sourceIdentifier,
+      metadataJson: JSON.stringify({ locationId: "apartment" }),
+    });
+    built.repository.writeMemory(row(520, "action:qixi:lin:520"));
+    built.repository.writeMemory(row(540, "action:qixi:lin:540"));
+    built.repository.writeMemory(row(2000, "action:qixi:lin:2000"));
+    built.repository.writeMemory(row(2010, "action:qixi:lin:2010"));
+    const memories = built.repository.listMemories("world_qixi_town", "npc_lin_xia", { limit: 50 })
+      .filter((memory) => memory.content.includes("回公寓休息"));
+    // 展示层去重后只剩一条;worldMinute 应为 2000,证明 540/2010(窗口内)未落库而 2000(跨窗口)已落库。
+    expect(memories).toHaveLength(1);
+    expect(memories[0].worldMinute).toBe(2000);
+    const recalled = built.repository.recallMemories("world_qixi_town", "npc_lin_xia", "下一步行动 回公寓休息", { worldTimeMinute: 2010 });
+    expect(recalled.filter((item) => item.content.includes("回公寓休息"))).toHaveLength(1);
+  });
+
   it("auto-approaches an NPC, persists Mock dialogue, locks the participant and writes memory", async () => {
     const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
     activeApp = built.app;
@@ -305,10 +327,12 @@ describe("day-one vertical slice", () => {
     expect(timeline.statusCode).toBe(200);
     expect(timeline.json().at(-1).type).toBe("factory.event");
 
+    for (let minute = 0; minute < 7; minute += 1) await built.simulation.tick();
+
     const causal = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/causal", headers: { cookie: cookie! } });
     expect(causal.statusCode).toBe(200);
     expect(causal.json().events.some((event: any) => event.type === "factory.event")).toBe(true);
-    expect(causal.json().edges).toEqual([]);
+    expect(causal.json().edges.some((edge: any) => edge.from === commit.json().event.id)).toBe(true);
   });
 
 });
@@ -423,5 +447,13 @@ describe("memory, snapshot, skip, branch and world generation", () => {
     const mapImage = await built.app.inject({ method: "GET", url: `/api/worlds/${worldId}/map-image`, headers: { cookie } });
     expect(mapImage.statusCode).toBe(200);
     expect(mapImage.headers["content-type"]).toBe("image/png");
+
+    for (let minute = 0; minute < 12; minute += 1) await built.simulation.tick();
+    const generatedState = await built.app.inject({ method: "GET", url: `/api/worlds/${worldId}/state`, headers: { cookie } });
+    const canvas = blueprint.json().blueprint.canvas;
+    expect(generatedState.json().npcs.every((npc: any) => npc.state.position.x >= 0
+      && npc.state.position.x <= canvas.width
+      && npc.state.position.y >= 0
+      && npc.state.position.y <= canvas.height)).toBe(true);
   });
 });

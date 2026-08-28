@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec, type Job, type MemoryEntry, type WorldBlueprint } from "@ai-town/shared";
+import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec, type Job, type MemoryEntry, type RealtimeMessage, type TownEvent, type WorldBlueprint } from "@ai-town/shared";
 import { api, mapImageUrl as mapImageHref } from "../services/api";
 import { gameEvents } from "../game/event-bus";
+import { toSpeechLines } from "../game/speech-events";
 import { useWorldStore } from "../state/world-store";
 import { TownCanvas } from "../game/TownCanvas";
 
@@ -13,9 +14,26 @@ function formatTime(minutes: number) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function formatWeekday(minutes: number) {
+  return ["周六", "周日", "周一", "周二", "周三", "周四", "周五"][Math.floor(minutes / 1440) % 7];
+}
+
+/** 把实时事件中的对话内容转发给场景,渲染 NPC 头顶气泡。 */
+function dispatchSpeechLines(message: RealtimeMessage): void {
+  const events: TownEvent[] = [];
+  if (message.type === "world.status" && message.event) events.push(message.event);
+  if (message.type === "world.tick") events.push(...message.data.events);
+  for (const event of events) {
+    for (const line of toSpeechLines(event)) {
+      gameEvents.dispatchEvent(new CustomEvent("npc:speak", { detail: line }));
+    }
+  }
+}
+
 function StateBar({ label, value, reverse = false }: { label: string; value: number; reverse?: boolean }) {
   const display = reverse ? 100 - value : value;
-  return <div className="state-row"><span>{label}</span><div><i style={{ width: `${display}%` }} /></div><b>{Math.round(value)}</b></div>;
+  const level = display >= 70 ? "充足" : display >= 40 ? "一般" : display >= 20 ? "紧张" : "危险";
+  return <div className="state-row"><span>{label}</span><div><i style={{ width: `${display}%` }} /></div><b title={`${Math.round(value)}/100`}>{level} · {Math.round(value)}</b></div>;
 }
 
 export function WorldPage() {
@@ -25,6 +43,7 @@ export function WorldPage() {
   const queryClient = useQueryClient();
   const [approachingNpcId, setApproachingNpcId] = useState<string | null>(null);
   const [walkableHigh, setWalkableHigh] = useState(false);
+  const [npcSprites, setNpcSprites] = useState<Record<string, string>>({});
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventDraft, setEventDraft] = useState("");
   const [eventPreview, setEventPreview] = useState<EventPreviewResult | null>(null);
@@ -143,6 +162,14 @@ export function WorldPage() {
         // 生成世界优先使用程序化地图 PNG;其次 AI 生成图;都没有则回退栖溪预置图
         setBlueprint(result.blueprint);
         setMapImageUrl(result.hasMapPng ? mapImageHref(worldId) : (result.asset?.imageUrl ?? null));
+        const assets = await api.worldAssets(worldId);
+        if (!cancelled) {
+          const sprites: Record<string, string> = {};
+          for (const asset of assets) {
+            if (asset.kind === "sprite" && asset.agentId && asset.url) sprites[asset.agentId] = asset.url;
+          }
+          setNpcSprites(sprites);
+        }
       } catch {
         // 世界尚无 blueprint(如早期世界),由 TownScene 回退到栖溪预置蓝图与地图
       }
@@ -205,7 +232,10 @@ export function WorldPage() {
       socket.onopen = () => store.setConnected(true);
       socket.onmessage = (event) => {
         const parsed = RealtimeMessageSchema.safeParse(JSON.parse(String(event.data)));
-        if (parsed.success) store.applyMessage(parsed.data);
+        if (parsed.success) {
+          store.applyMessage(parsed.data);
+          dispatchSpeechLines(parsed.data);
+        }
       };
       socket.onclose = () => {
         store.setConnected(false);
@@ -234,14 +264,14 @@ export function WorldPage() {
   return (
     <main className="world-page">
       <header className="world-topbar">
-        <div className="world-title"><Link to="/">←</Link><div><b>{store.world.name}</b><span>周末河岸市集筹备中</span></div></div>
-        <div className="world-clock"><span className="clock-label">周六</span><strong>{formatTime(store.world.gameMinute)}</strong><span className={store.connected ? "live on" : "live"}>{store.connected ? "实时" : "重连中"}</span></div>
-        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><span className="skip-group">跳过<button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(30); }}>+30分</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(60); }}>+1时</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(180); }}>+3时</button></span><button disabled={createBranch.isPending} onClick={() => createBranch.mutate()}>{createBranch.isPending ? "创建中…" : "创建分支"}</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button></div>
+        <div className="world-title"><Link to="/" title="返回世界库">←</Link><div><b>{store.world.name}</b><span title={store.world.description}>{store.world.description}</span></div></div>
+        <div className="world-clock"><span className="clock-label">{formatWeekday(store.world.gameMinute)}</span><strong>{formatTime(store.world.gameMinute)}</strong><span className={store.connected ? "live on" : "live"}>{store.connected ? "实时" : "重连中"}</span></div>
+        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><span className="skip-group">跳过<button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(30); }}>+30分</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(60); }}>+1时</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(180); }}>+3时</button></span><button disabled={createBranch.isPending} onClick={() => createBranch.mutate()}>{createBranch.isPending ? "创建中…" : "创建分支"}</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button><button className="topbar-logout" onClick={async () => { await api.logout(); window.location.href = "/login"; }}>退出</button></div>
       </header>
 
       <section className="world-layout">
         <div className="map-stage">
-          <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} />
+          <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
           </div>

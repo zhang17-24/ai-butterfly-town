@@ -166,3 +166,12 @@ export const dialogueMessages = sqliteTable("dialogue_messages", {
   source: text("source").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const worldAssets = sqliteTable("world_assets", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id").notNull(),
+  kind: text("kind").notNull(),
+  agentId: text("agent_id"),
+  contentB64: text("content_b64").notNull(),
+  createdAt: text("created_at").notNull(),
+});

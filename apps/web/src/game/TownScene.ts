@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { createNavigationGrid, type Npc, type Player, type Position, type WorldBlueprint } from "@ai-town/shared";
 import { qixiBlueprint } from "@ai-town/shared/qixi-blueprint";
 import { gameEvents } from "./event-bus";
+import { SPEECH_PLAYER_ACTOR, type SpeechLine } from "./speech-events";
 
 type NpcMarker = Phaser.GameObjects.Container & {
   avatar: Phaser.GameObjects.GameObject & { setScale?: (value: number) => unknown; setFlipX?: (value: boolean) => unknown };
@@ -29,10 +30,42 @@ const WALK_FRONT_FRAMES: Record<string, readonly number[]> = {
 const VIEW_WIDTH = 900;
 const VIEW_HEIGHT = 620;
 
+/** 头部气泡相对角色原点的垂直偏移(avatar ~-5,名牌 ~-36,气泡在其上方)。 */
+const BUBBLE_OFFSET = 64;
+
+const BUBBLE_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: "sans-serif",
+  fontSize: "12px",
+  color: "#1f3528",
+  align: "center",
+  wordWrap: { width: 180 },
+  lineSpacing: 2,
+};
+
+/** 气泡显示的最大字数:超长对话回复只截前段,避免气泡过高在画布顶部被裁掉(完整内容可读对话面板)。 */
+const BUBBLE_MAX_CHARS = 72;
+
+function clipBubbleText(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > BUBBLE_MAX_CHARS ? `${trimmed.slice(0, BUBBLE_MAX_CHARS).trimEnd()}…` : trimmed;
+}
+
+interface SpeechBubble {
+  container: Phaser.GameObjects.Container;
+  gfx: Phaser.GameObjects.Graphics;
+  text: Phaser.GameObjects.Text;
+  holder: Phaser.GameObjects.Container | null;
+  timer: Phaser.Time.TimerEvent | null;
+  /** 气泡矩形高度(用于把它限制在画布内)。 */
+  height: number;
+}
+
 export interface TownSceneOptions {
   worldId?: string;
   blueprint?: WorldBlueprint;
   mapImageUrl?: string;
+  /** 动态世界居民精灵表 URL(生成世界;按 npcId) */
+  npcSprites?: Record<string, string>;
 }
 
 export class TownScene extends Phaser.Scene {
@@ -45,13 +78,17 @@ export class TownScene extends Phaser.Scene {
   private worldId: string | null = null;
   private mapImageUrl: string | null = null;
   private mapImage: Phaser.GameObjects.Image | null = null;
+  private npcSprites: Record<string, string> = {};
   private labelTexts: Phaser.GameObjects.Text[] = [];
+  private bubbles = new Map<string, SpeechBubble>();
+  private playerId: string | null = null;
 
   constructor(options: TownSceneOptions = {}) {
     super("TownScene");
     this.worldId = options.worldId ?? null;
     this.blueprint = options.blueprint ?? qixiBlueprint;
     this.mapImageUrl = options.mapImageUrl ?? null;
+    this.npcSprites = options.npcSprites ?? {};
   }
 
   private mapKey(): string {
@@ -62,6 +99,7 @@ export class TownScene extends Phaser.Scene {
     this.load.image("qixi-town-map", "/assets/maps/qixi-town-prebuilt-v1.png");
     if (this.worldId && this.mapImageUrl) this.load.image(this.mapKey(), this.mapImageUrl);
     for (const id of SPRITE_IDS) this.load.image(`sheet-${id}`, `/assets/npcs/${id}.png`);
+    for (const [npcId, url] of Object.entries(this.npcSprites)) this.load.image(`dyn-sheet-${npcId}`, url);
   }
 
   create(): void {
@@ -76,6 +114,9 @@ export class TownScene extends Phaser.Scene {
       if (currentlyOver.length > 0) return;
       gameEvents.dispatchEvent(new CustomEvent("map:move", { detail: { x: Math.round(pointer.worldX), y: Math.round(pointer.worldY) } }));
     });
+
+    gameEvents.addEventListener("npc:speak", this.onNpcSpeak);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onSceneShutdown, this);
   }
 
   /** 由外部(WorldPage 拉取 blueprint 后)调用:换地图纹理、重算导航网格与地标。 */
@@ -231,6 +272,10 @@ export class TownScene extends Phaser.Scene {
   }
 
   private createAvatar(id: string, clothingColor: string): { avatar: Phaser.GameObjects.GameObject; spriteKey: string | null } {
+    if (this.textures.exists(`charsheet-dyn-${id}`)) {
+      const sprite = this.add.sprite(0, -5, `charsheet-dyn-${id}`, "18").setScale(0.13).setOrigin(0.5, 0.62);
+      return { avatar: sprite, spriteKey: `npc-dyn-${id}` };
+    }
     if (this.textures.exists(`charsheet-${id}`)) {
       const sprite = this.add.sprite(0, -5, `charsheet-${id}`, "18").setScale(0.13).setOrigin(0.5, 0.62);
       return { avatar: sprite, spriteKey: `npc-${id}` };
@@ -278,6 +323,7 @@ export class TownScene extends Phaser.Scene {
 
   applyPlayer(player: Player | null, path: Position[] = []): void {
     if (!this.scene || !this.scene.isActive() || !player) return;
+    this.playerId = player.id;
     if (!this.playerMarker) {
       const halo = this.add.ellipse(0, 13, 34, 14, 0x68d5ff, 0.48).setStrokeStyle(2, 0xeaffff, 0.9);
       const { avatar, spriteKey } = this.createAvatar("player", "#285f83");
@@ -362,6 +408,38 @@ export class TownScene extends Phaser.Scene {
         continue;
       }
     }
+    this.registerDynSpriteSheets();
+  }
+
+  private registerDynSpriteSheets(): void {
+    for (const npcId of Object.keys(this.npcSprites)) {
+      const sourceKey = `dyn-sheet-${npcId}`;
+      if (!this.textures.exists(sourceKey)) continue;
+      const textureKey = `charsheet-dyn-${npcId}`;
+      if (this.textures.exists(textureKey)) continue;
+      try {
+        const source = this.textures.get(sourceKey).getSourceImage() as HTMLImageElement;
+        const { canvas } = chromaKeySheet(source);
+        const frameWidth = Math.floor(canvas.width / 6);
+        const frameHeight = Math.floor(canvas.height / 5);
+        this.textures.addCanvas(textureKey, canvas);
+        const texture = this.textures.get(textureKey);
+        for (let row = 0; row < 5; row += 1) {
+          for (let column = 0; column < 6; column += 1) {
+            texture.add(`${row * 6 + column}`, 0, column * frameWidth, row * frameHeight, frameWidth, frameHeight);
+          }
+        }
+        texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+        const prefix = `npc-dyn-${npcId}`;
+        if (!this.anims.exists(`${prefix}-walk-front`)) {
+          const frames = [6, 7, 8, 9].map((frame) => ({ key: textureKey, frame: String(frame) }));
+          this.anims.create({ key: `${prefix}-walk-front`, frames, frameRate: 4, repeat: -1 });
+          this.anims.create({ key: `${prefix}-idle-front`, frames: [{ key: textureKey, frame: "18" }], frameRate: 1 });
+        }
+      } catch {
+        continue;
+      }
+    }
   }
 
   private createPixelAvatar(npcId: string, clothingColor: number): Phaser.GameObjects.Container {
@@ -400,6 +478,109 @@ export class TownScene extends Phaser.Scene {
       parts.push(this.add.rectangle(11, 3, 9, 7, 0x3c4148), this.add.rectangle(11, 3, 3, 3, 0x9bd2d0));
     }
     return this.add.container(0, -5, parts).setScale(1.15);
+  }
+
+  /** 头部对话气泡:跟随角色移动,淡入停留后淡出。 */
+  showSpeechBubble(actorId: string, text: string, holdMs = 2600): void {
+    const holder = this.resolveHolder(actorId);
+    if (!holder) return;
+    const shown = clipBubbleText(text);
+    const existing = this.bubbles.get(actorId);
+    if (existing) {
+      this.tweens.killTweensOf(existing.container);
+      existing.container.setAlpha(1).setScale(1);
+      existing.text.setText(shown);
+      this.layoutBubble(existing);
+      this.placeBubble(existing, holder);
+      this.scheduleBubbleHide(actorId, existing, holdMs);
+      return;
+    }
+    const textObj = this.add.text(0, -9, shown, BUBBLE_TEXT_STYLE).setOrigin(0.5, 1);
+    const gfx = this.add.graphics();
+    const container = this.add.container(holder.x, holder.y - BUBBLE_OFFSET, [gfx, textObj]).setDepth(40);
+    const bubble: SpeechBubble = { container, gfx, text: textObj, holder, timer: null, height: 0 };
+    this.layoutBubble(bubble);
+    this.placeBubble(bubble, holder);
+    container.setAlpha(0).setScale(0.4);
+    this.tweens.add({ targets: container, alpha: 1, scale: 1, duration: 180, ease: "Back.easeOut" });
+    this.bubbles.set(actorId, bubble);
+    this.scheduleBubbleHide(actorId, bubble, holdMs);
+  }
+
+  private resolveHolder(actorId: string): Phaser.GameObjects.Container | null {
+    if (actorId === SPEECH_PLAYER_ACTOR) return this.playerMarker;
+    if (this.playerId && actorId === this.playerId) return this.playerMarker;
+    return this.markers.get(actorId) ?? null;
+  }
+
+  private layoutBubble(bubble: SpeechBubble): void {
+    const { gfx, text } = bubble;
+    const padX = 11;
+    const padY = 9;
+    const radius = 8;
+    const tailH = 9;
+    const width = Math.max(60, text.width + padX * 2);
+    const height = text.height + padY * 2;
+    bubble.height = height;
+    gfx.clear();
+    gfx.fillStyle(0xffffff, 0.96);
+    gfx.fillRoundedRect(-width / 2, -height, width, height, radius);
+    gfx.lineStyle(2, 0x2b5a44, 1);
+    gfx.strokeRoundedRect(-width / 2, -height, width, height, radius);
+    gfx.fillStyle(0xffffff, 0.96);
+    gfx.fillTriangle(-8, -2, 8, -2, 0, tailH);
+    gfx.lineStyle(2, 0x2b5a44, 1);
+    gfx.lineBetween(-8, -2, 0, tailH);
+    gfx.lineBetween(0, tailH, 8, -2);
+    text.setPosition(0, -padY);
+  }
+
+  /** 把气泡放到角色头上,并夹取到画布内(角色位置偏高时不让气泡顶出画布顶部)。 */
+  private placeBubble(bubble: SpeechBubble, holder: Phaser.GameObjects.Container): void {
+    const bottom = holder.y - BUBBLE_OFFSET;
+    bubble.container.setPosition(holder.x, Math.max(bubble.height + 2, bottom));
+  }
+
+  private scheduleBubbleHide(actorId: string, bubble: SpeechBubble, holdMs: number): void {
+    bubble.timer?.remove();
+    bubble.timer = this.time.delayedCall(holdMs, () => {
+      this.tweens.add({
+        targets: bubble.container,
+        alpha: 0,
+        scale: 0.6,
+        duration: 260,
+        ease: "Sine.easeIn",
+        onComplete: () => {
+          bubble.timer?.remove();
+          if (this.bubbles.get(actorId) === bubble) this.bubbles.delete(actorId);
+          bubble.container.destroy();
+        },
+      });
+    });
+  }
+
+  /** 作为类字段箭头函数,确保 this 绑定,可被 addEventListener/removeEventListener 精确匹配。 */
+  private readonly onNpcSpeak = (event: Event): void => {
+    const detail = (event as CustomEvent<SpeechLine>).detail;
+    if (typeof detail?.actorId === "string" && typeof detail?.text === "string") {
+      this.showSpeechBubble(detail.actorId, detail.text);
+    }
+  };
+
+  private onSceneShutdown(): void {
+    gameEvents.removeEventListener("npc:speak", this.onNpcSpeak);
+    for (const bubble of this.bubbles.values()) {
+      bubble.timer?.remove();
+      bubble.container.destroy();
+    }
+    this.bubbles.clear();
+  }
+
+  update(): void {
+    for (const bubble of this.bubbles.values()) {
+      if (!bubble.holder) continue;
+      this.placeBubble(bubble, bubble.holder);
+    }
   }
 }
 

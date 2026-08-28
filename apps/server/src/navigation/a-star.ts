@@ -32,13 +32,20 @@ export function findPath(grid: NavigationGrid, from: Position, to: Position): Po
 
 export function findNearestWalkable(grid: NavigationGrid, target: Position): Position {
   if (isWalkable(grid, toCell(target, grid))) return target;
-  for (const radius of [10, 20, 30, 40, 60, 80, 100, 140, 180, 240]) {
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.707, 0.707], [0.707, -0.707], [-0.707, 0.707], [-0.707, -0.707]]) {
-      const point = { x: Math.round(target.x + Number(dx) * radius), y: Math.round(target.y + Number(dy) * radius) };
-      if (isWalkable(grid, toCell(point, grid))) return point;
+  let nearest: Position | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (let row = 0; row < grid.rows; row += 1) {
+    for (let column = 0; column < grid.columns; column += 1) {
+      if (!grid.walkable[row][column]) continue;
+      const point = cellCenter({ column, row }, grid.tileSize);
+      const distance = Math.hypot(point.x - target.x, point.y - target.y);
+      if (distance < nearestDistance) {
+        nearest = point;
+        nearestDistance = distance;
+      }
     }
   }
-  return target;
+  return nearest ?? target;
 }
 
 export function findApproachPath(grid: NavigationGrid, from: Position, target: Position): { destination: Position; path: Position[]; distance: number } | null {

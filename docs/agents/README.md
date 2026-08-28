@@ -22,6 +22,9 @@
 | M6/M7/记忆系统接线 | 快照·跳过·分支 / 一句话生成 / D13–D14 记忆全链 | ✅ `ea1339c` |
 | M9 交付 | OpenAPI/test:ai(3/3)/e2e(10/10)/dist exports | ✅ `a1f95d4` |
 | 收尾 | web UI 接线+lint 门+交付文档 | ✅ `be8777a` / `809d67c` / `ad6530f` |
+| 审计修复迭代 | 动态世界运行闭环、真实因果边、社交稳定性、长时状态 | 🚧 进行中；需求/实现见 `audit-remediation-2026-08-28.*.md` |
+| 前端体验修复(U) | 全站返回/退出导航、开发文案清理、causal 居民实名、徽章与入口修复 | ✅ 完成未提交（`pnpm verify` 绿）；含共享文件 WorldPage.tsx，提交时需一起 add |
+| 记忆去重(F) | 写入窗口去重 1440min / 召回按内容合并保留最高分 / 记忆列表展示去重 | ✅ 完成未提交；`apps/server/src/db/repository.ts` 与 R1 有交集（writeMemory/listMemories），提交需合并 |
 
 ## 状态快照(04:40 最终)
 
@@ -30,7 +33,8 @@
 
 ## 串行区 / 任务分配
 
-- 串行区无占用;全部代码切片已提交。
+- 审计修复迭代正在修改 World/Simulation/Timeline 纵向链路;完成前不再并行修改这些文件。
+- 前端体验修复(U):只动 `apps/web/src/pages/{NewWorldPage,AiLabPage,WorldPage,CausalPage,HomePage,LoginPage}.tsx`、对应 `*.css`、`apps/web/src/styles.css`。其中 **WorldPage.tsx 与审计迭代有交集**:U 只补导航/退出/副标题,不触碰其动态日期/StateBar 等级/气泡逻辑;NewWorldPage.tsx 已含 aiArt 未提交代码,U 保持不变。
 - 仅剩人工/用户侧项:线上部署+演示视频+账本(见 docs/delivery.md 部署与录制脚本)。
 
 ## 守则

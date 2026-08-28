@@ -8,15 +8,16 @@ export interface TownCanvasProps {
   worldId?: string;
   blueprint?: WorldBlueprint;
   mapImageUrl?: string;
+  npcSprites?: Record<string, string>;
 }
 
-export function TownCanvas({ worldId, blueprint, mapImageUrl }: TownCanvasProps) {
+export function TownCanvas({ worldId, blueprint, mapImageUrl, npcSprites = {} }: TownCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<TownScene | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const scene = new TownScene({ worldId, blueprint, mapImageUrl });
+    const scene = new TownScene({ worldId, blueprint, mapImageUrl, npcSprites });
     sceneRef.current = scene;
     const game = new Phaser.Game({
       type: Phaser.AUTO,

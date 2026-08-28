@@ -12,6 +12,8 @@ export interface CreateWorldRequest {
   prompt: string;
   population: number;
   style: string;
+  /** 真实 AI 生图(Seedream 地图+NPC 精灵表);较慢,可关闭 */
+  aiArt?: boolean;
 }
 
 /** 六个阶段与技术方案 §6.4 生成作业保持一致(道路由 WorldGenerator 提供)。 */
@@ -101,6 +103,7 @@ export function NewWorldPage(props: NewWorldPageProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [population, setPopulation] = useState(5);
   const [style, setStyle] = useState<string>(STYLE_OPTIONS[0].value);
+  const [aiArt, setAiArt] = useState(true);
 
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [creating, setCreating] = useState(false);
@@ -108,7 +111,7 @@ export function NewWorldPage(props: NewWorldPageProps) {
 
   const startCreate = async () => {
     if (!prompt.trim()) return;
-    const request: CreateWorldRequest = { prompt: prompt.trim(), population, style };
+    const request: CreateWorldRequest = { prompt: prompt.trim(), population, style, aiArt };
     setCreating(true);
     setError(null);
     setJob(null);
@@ -158,10 +161,14 @@ export function NewWorldPage(props: NewWorldPageProps) {
 
   return (
     <main className="new-world">
+      <nav className="page-nav">
+        <Link className="page-nav-back" to="/">← 返回世界库</Link>
+        <button className="page-nav-logout" onClick={async () => { await serviceApi.logout(); navigate("/login"); }}>退出登录</button>
+      </nav>
       <header className="new-world-header">
         <div className="brand-mark dark">AI BUTTERFLY TOWN</div>
         <h1>一句话创建世界</h1>
-        <p className="new-world-sub">M7 组件 · 已接入生成作业接口(POST /worlds)</p>
+        <p className="new-world-sub">描述你的理想小镇，AI 会生成地图、居民与事件轨迹。</p>
       </header>
 
       <section className="new-world-form">
@@ -182,6 +189,11 @@ export function NewWorldPage(props: NewWorldPageProps) {
 
         {advancedOpen && (
           <div className="new-world-advanced">
+            <label className="new-world-label">AI 美术(Seedream 生图)</label>
+            <label className="new-world-check">
+              <input type="checkbox" checked={aiArt} onChange={(event) => setAiArt(event.target.checked)} />
+              AI 生成地形图与居民形象(较慢,含失败自动降级)
+            </label>
             <label className="new-world-label">人口规模</label>
             <div className="new-world-population">
               {POPULATION_PRESETS.map((count) => (

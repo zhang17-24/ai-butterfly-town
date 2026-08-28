@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull, lt } from "drizzle-orm";
 import type { AiTrace, CausalGraph, DialogueEndResult, DialogueMessage, DialogueReplyResult, DialogueSession, DialogueStartResult, EventCommitResult, EventPreviewSpec, Job, MemoryEntry, Npc, NpcProfile, NpcState, Player, PlayerMoveResult, Position, RecalledMemory, TownEvent, WorldBlueprint, WorldState, WorldSummary } from "@ai-town/shared";
-import { AiTraceSchema, DialogueSessionSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema } from "@ai-town/shared";
+import { AiTraceSchema, DialogueSessionSchema, NpcProfileSchema, NpcStateSchema, PlayerSchema, WorldBlueprintSchema } from "@ai-town/shared";
 import type { DatabaseHandle } from "./database.js";
-import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, jobs, knowledge, memories, npcs, players, relationships, snapshots, users, worldBranches, worlds } from "./schema.js";
+import { aiTraces, commandReceipts, dialogueMessages, dialogueSessions, events, jobs, knowledge, memories, npcs, players, relationships, snapshots, users, worldAssets, worldBranches, worlds } from "./schema.js";
 import { computeKnowledgeSpread, type CausalEventSpec } from "../domain/event-propagation.js";
 import { demoNpcs, demoWorld, DEMO_USER_ID } from "../domain/seed.js";
 import { qixiBlueprint } from "../generation/qixi-blueprint.js";
@@ -24,6 +24,9 @@ export type PendingWorldEvent = Omit<TownEvent, "id" | "branchId" | "version" | 
   source?: EventSource;
   causeIds?: string[];
 };
+
+/** 记忆写入去重窗口:与检索半衰期一致(1 世界日),窗口内同内容不重复落库。 */
+export const MEMORY_DEDUP_WINDOW_MINUTES = 1440;
 
 export interface MemoryWriteRow {
   worldId: string;
@@ -332,7 +335,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       const playerRow = this.handle.db.select().from(players).where(and(eq(players.worldId, input.worldId), eq(players.userId, input.userId))).get();
       if (!playerRow) return { kind: "not_found" } as const;
       const player = this.toPlayer(playerRow);
-      const path = findPath(createNavigationGrid(qixiBlueprint), player.position, input.target);
+      const path = findPath(createNavigationGrid(this.getSimulationBlueprint(input.worldId)), player.position, input.target);
       if (!path) return { kind: "unreachable" } as const;
 
       const now = new Date().toISOString();
@@ -375,7 +378,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       if (active) return { kind: "busy" } as const;
       const player = this.toPlayer(playerRow);
       const npc: Npc = { profile: NpcProfileSchema.parse(JSON.parse(npcRow.profileJson)), state: NpcStateSchema.parse(JSON.parse(npcRow.stateJson)) };
-      const approach = findApproachPath(createNavigationGrid(qixiBlueprint), player.position, npc.state.position);
+      const approach = findApproachPath(createNavigationGrid(this.getSimulationBlueprint(input.worldId)), player.position, npc.state.position);
       if (!approach) return { kind: "unreachable" } as const;
 
       const now = new Date().toISOString();
@@ -528,7 +531,7 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
       const diffs = computeKnowledgeSpread(
         spec,
         npcRows.map((row) => ({ profile: NpcProfileSchema.parse(JSON.parse(row.profileJson)), state: NpcStateSchema.parse(JSON.parse(row.stateJson)) })),
-        qixiBlueprint,
+        this.getSimulationBlueprint(current.id),
       );
       const now = new Date().toISOString();
       const version = current.version + 1;
@@ -678,6 +681,16 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     if (row.worldMinute < 0) return;
     const existing = this.handle.db.select({ id: memories.id }).from(memories).where(eq(memories.sourceIdentifier, row.sourceIdentifier)).get();
     if (existing) return;
+    // 写入去重:同 agent+kind+content 的未归档记忆在 1 世界日内已有,则不再写(高频动作"回公寓休息"等会堆积完全相同记录)。
+    const duplicate = this.handle.db.select({ id: memories.id }).from(memories).where(and(
+      eq(memories.worldId, row.worldId),
+      eq(memories.agentId, row.agentId),
+      eq(memories.kind, row.kind),
+      eq(memories.content, clip(row.content, 240)),
+      eq(memories.isArchived, false),
+      gt(memories.worldMinute, row.worldMinute - MEMORY_DEDUP_WINDOW_MINUTES),
+    )).get();
+    if (duplicate) return;
     this.handle.db.insert(memories).values({
       id: randomUUID(), worldId: row.worldId, agentId: row.agentId, kind: row.kind, content: clip(row.content, 240),
       metadataJson: row.metadataJson, worldMinute: row.worldMinute, importance: Math.max(1, Math.min(100, Math.round(row.importance))),
@@ -690,11 +703,21 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     const filters = [eq(memories.worldId, worldId), eq(memories.agentId, agentId)];
     if (opts.kind) filters.push(eq(memories.kind, opts.kind));
     if (!opts.includeArchived) filters.push(eq(memories.isArchived, false));
-    return this.handle.db.select().from(memories).where(and(...filters)).orderBy(desc(memories.worldMinute), desc(memories.createdAt)).limit(limit).all().map((row) => ({
-      id: row.id, worldId: row.worldId, agentId: row.agentId, kind: row.kind as MemoryEntry["kind"], content: row.content,
-      importance: row.importance, subject: row.subject, worldMinute: row.worldMinute, metadataJson: row.metadataJson,
-      sourceIdentifier: row.sourceIdentifier ?? "", isArchived: Boolean(row.isArchived), createdAt: row.createdAt,
-    }));
+    // 展示去重:按世界分钟降序保留每种内容的最新一条(历史版本曾把高频动作写成上千条相同记忆)。
+    const rows = this.handle.db.select().from(memories).where(and(...filters)).orderBy(desc(memories.worldMinute), desc(memories.createdAt)).all();
+    const seen = new Set<string>();
+    const result: MemoryEntry[] = [];
+    for (const row of rows) {
+      if (seen.has(row.content)) continue;
+      seen.add(row.content);
+      result.push({
+        id: row.id, worldId: row.worldId, agentId: row.agentId, kind: row.kind as MemoryEntry["kind"], content: row.content,
+        importance: row.importance, subject: row.subject, worldMinute: row.worldMinute, metadataJson: row.metadataJson,
+        sourceIdentifier: row.sourceIdentifier ?? "", isArchived: Boolean(row.isArchived), createdAt: row.createdAt,
+      });
+      if (result.length >= limit) break;
+    }
+    return result;
   }
 
   recallMemories(worldId: string, agentId: string, query: string, opts: { worldTimeMinute?: number | null; relatedAgentId?: string; locationId?: string; maxEntries?: number; maxChars?: number } = {}): RecalledMemory[] {
@@ -807,6 +830,36 @@ export class TownRepository implements WorldRepository, EventRepository, AgentRe
     if (!world) return null;
     if (world.blueprintJson) return { blueprint: JSON.parse(world.blueprintJson) as WorldBlueprint, asset: world.assetJson ? JSON.parse(world.assetJson) : null, mapPngB64: world.mapPngB64 };
     return { blueprint: qixiBlueprint, asset: null, mapPngB64: null };
+  }
+
+  getSimulationBlueprint(worldId: string): WorldBlueprint {
+    const world = this.handle.db.select({ blueprintJson: worlds.blueprintJson }).from(worlds).where(eq(worlds.id, worldId)).get();
+    if (!world?.blueprintJson) return qixiBlueprint;
+    const parsed = WorldBlueprintSchema.safeParse(JSON.parse(world.blueprintJson));
+    return parsed.success ? parsed.data : qixiBlueprint;
+  }
+
+  upsertWorldAsset(worldId: string, kind: string, agentId: string | null, contentB64: string): void {
+    const now = new Date().toISOString();
+    const existing = this.handle.db.select({ id: worldAssets.id }).from(worldAssets).where(and(
+      eq(worldAssets.worldId, worldId), eq(worldAssets.kind, kind), agentId ? eq(worldAssets.agentId, agentId) : isNull(worldAssets.agentId),
+    )).get();
+    if (existing) {
+      this.handle.db.update(worldAssets).set({ contentB64, createdAt: now }).where(eq(worldAssets.id, existing.id)).run();
+    } else {
+      this.handle.db.insert(worldAssets).values({ id: randomUUID(), worldId, kind, agentId, contentB64, createdAt: now }).run();
+    }
+  }
+
+  listWorldAssets(worldId: string): Array<{ kind: string; agentId: string | null }> {
+    return this.handle.db.select({ kind: worldAssets.kind, agentId: worldAssets.agentId }).from(worldAssets).where(eq(worldAssets.worldId, worldId)).all();
+  }
+
+  getWorldAssetB64(worldId: string, kind: string, agentId: string | null): string | null {
+    const row = this.handle.db.select({ contentB64: worldAssets.contentB64 }).from(worldAssets).where(and(
+      eq(worldAssets.worldId, worldId), eq(worldAssets.kind, kind), agentId ? eq(worldAssets.agentId, agentId) : isNull(worldAssets.agentId),
+    )).get();
+    return row?.contentB64 ?? null;
   }
 
   getWorldMapPng(userId: string, worldId: string): string | null {

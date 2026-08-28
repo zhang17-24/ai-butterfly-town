@@ -17,6 +17,12 @@ describe("chooseMockAction", () => {
     expect(chooseMockAction(npc, 501, 2).label).toContain("吃早餐");
   });
 
+  it("prioritizes rest when energy reaches a dangerous level", () => {
+    const base = demoNpcs[1] as Npc;
+    const npc: Npc = { ...base, state: { ...base.state, hunger: 20, energy: 3, social: 10 } };
+    expect(chooseMockAction(npc, 501, 2).id).toBe("rest_at_home");
+  });
+
   it("uses personality in the explanation and scoring", () => {
     const npc = demoNpcs[2] as Npc;
     const action = chooseMockAction(npc, 501, 2);
@@ -24,4 +30,3 @@ describe("chooseMockAction", () => {
     expect(action.score).toBeGreaterThan(0);
   });
 });
-

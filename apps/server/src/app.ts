@@ -19,8 +19,11 @@ import { SimulationDecisionService } from "./ai/simulation-decider.js";
 import { DialogueDecisionService } from "./ai/dialogue-decider.js";
 import { buildEventPreview } from "./domain/event-preview.js";
 import { computeKnowledgeSpread } from "./domain/event-propagation.js";
-import { qixiBlueprint } from "./generation/qixi-blueprint.js";
 import { VisualGenerationOrchestrator } from "./generation/visual-orchestrator.js";
+import { SeedreamImageProvider } from "./generation/seedream-image-provider.js";
+import { PixelLayoutVisionProvider } from "./generation/pixel-layout-vision-provider.js";
+import { DoubaoVisionProvider } from "./generation/doubao-vision-provider.js";
+import { LlmStructureProvider } from "./generation/llm-structure-provider.js";
 import { JobWorker } from "./jobs/worker.js";
 import { buildGenerateWorldHandler } from "./jobs/generate-world-handler.js";
 import { registerOpenApi } from "./openapi.js";
@@ -29,6 +32,12 @@ declare module "fastify" {
   interface FastifyRequest {
     userId: string | null;
   }
+}
+
+function imageContentType(buffer: Buffer): string {
+  if (buffer.length > 2 && buffer[0] === 0xff && buffer[1] === 0xd8) return "image/jpeg";
+  if (buffer.length > 4 && buffer.subarray(0, 4).toString("hex") === "89504e47") return "image/png";
+  return "application/octet-stream";
 }
 
 const LoginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
@@ -70,12 +79,13 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   const decider = new SimulationDecisionService(aiProvider);
   const dialogueDecider = new DialogueDecisionService(aiProvider);
   const simulation = new SimulationService(repository, hub, config.tickMs, decider, config.simulationAi.maxDecisionsPerTick);
-  const visualOrchestrator = new VisualGenerationOrchestrator(
-    { enabled: false, async generateMap() { throw new Error("IMAGE_DISABLED"); } },
-    { enabled: false, async reviewMap() { throw new Error("VISION_DISABLED"); } },
-  );
+  const imageProvider = new SeedreamImageProvider(config.imageAi);
+  const visionProvider = new DoubaoVisionProvider(config.visionAi);
+  const visualOrchestrator = new VisualGenerationOrchestrator(imageProvider, visionProvider.enabled ? visionProvider : new PixelLayoutVisionProvider());
+  const llmAi = new OpenAICompatibleProvider({ ...config.simulationAi, maxOutputTokens: 2800 });
+  const structureProvider = new LlmStructureProvider(llmAi);
   const jobWorker = new JobWorker(repository, {
-    generate_world: buildGenerateWorldHandler(repository, visualOrchestrator),
+    generate_world: buildGenerateWorldHandler(repository, visualOrchestrator, imageProvider, structureProvider),
     skip_world: async (job, report) => {
       const payload = JSON.parse(repository.getJobPayload(job.id)) as { worldId: string; targetMinute: number };
       const result = await simulation.advanceTo(payload.worldId, payload.targetMinute, {
@@ -262,8 +272,9 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
     const snapshot = repository.getSimulationState(request.params.worldId);
     if (!snapshot) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
-    const preview = buildEventPreview(parsed.data.text, { nowMinute: snapshot.world.gameMinute, blueprint: qixiBlueprint });
-    const spread = computeKnowledgeSpread(preview.preview, snapshot.npcs, qixiBlueprint);
+    const blueprint = repository.getSimulationBlueprint(request.params.worldId);
+    const preview = buildEventPreview(parsed.data.text, { nowMinute: snapshot.world.gameMinute, blueprint });
+    const spread = computeKnowledgeSpread(preview.preview, snapshot.npcs, blueprint);
     return {
       previewId: preview.preview.id,
       preview: {
@@ -328,7 +339,25 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/map-image", { preHandler: requireUser }, async (request, reply) => {
     const png = repository.getWorldMapPng(request.userId!, request.params.worldId);
     if (!png) return reply.code(404).send({ error: { code: "MAP_NOT_FOUND", message: "该世界没有程序化地图", recoverable: true, details: {} } });
-    return reply.header("Content-Type", "image/png").header("Cache-Control", "public, max-age=86400").send(Buffer.from(png, "base64"));
+    return reply.header("Content-Type", imageContentType(Buffer.from(png, "base64"))).header("Cache-Control", "public, max-age=86400").send(Buffer.from(png, "base64"));
+  });
+
+  app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/assets", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    return repository.listWorldAssets(request.params.worldId).map((asset) => ({
+      kind: asset.kind,
+      agentId: asset.agentId,
+      url: asset.kind === "sprite" && asset.agentId
+        ? `/api/worlds/${request.params.worldId}/npcs/${asset.agentId}/sprite`
+        : null,
+    }));
+  });
+
+  app.get<{ Params: { worldId: string; npcId: string } }>("/api/worlds/:worldId/npcs/:npcId/sprite", { preHandler: requireUser }, async (request, reply) => {
+    if (!repository.ownsWorld(request.userId!, request.params.worldId)) return reply.code(404).send({ error: { code: "WORLD_NOT_FOUND", message: "世界不存在", recoverable: false, details: {} } });
+    const b64 = repository.getWorldAssetB64(request.params.worldId, "sprite", request.params.npcId);
+    if (!b64) return reply.code(404).send({ error: { code: "SPRITE_NOT_FOUND", message: "该居民没有 AI 精灵表", recoverable: true, details: {} } });
+    return reply.header("Content-Type", imageContentType(Buffer.from(b64, "base64"))).header("Cache-Control", "public, max-age=86400").send(Buffer.from(b64, "base64"));
   });
 
   app.get<{ Params: { worldId: string } }>("/api/worlds/:worldId/snapshots", { preHandler: requireUser }, async (request, reply) => {

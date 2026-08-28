@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
-import type { AiTrace, Npc, NpcState, RealtimeMessage, WorldSummary } from "@ai-town/shared";
+import type { AiTrace, Npc, NpcState, RealtimeMessage, WorldBlueprint, WorldSummary } from "@ai-town/shared";
 import type { MemoryWriteRow, PendingWorldEvent, TownRepository } from "../db/repository.js";
 import type { WorldHub } from "../realtime/world-hub.js";
 import { applyActionEffects, applyPassiveMinute } from "../domain/mock-decision.js";
 import type { SimulationDecisionService } from "../ai/simulation-decider.js";
 import { createNavigationGrid, findApproachPath, findNearestWalkable } from "../navigation/a-star.js";
-import { qixiBlueprint } from "../generation/qixi-blueprint.js";
+import type { NavigationGrid } from "../navigation/a-star.js";
 import { buildSkipSchedule } from "../timeline/snapshot-logic.js";
-
-const navigationGrid = createNavigationGrid(qixiBlueprint);
+import { maybeSocialize } from "./npc-socialize.js";
 
 export class SimulationService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private aiCursor = 0;
+  private readonly navigationByWorld = new Map<string, { blueprint: WorldBlueprint; grid: NavigationGrid }>();
 
   constructor(
     private repository: TownRepository,
@@ -58,6 +58,21 @@ export class SimulationService {
     const pendingEvents = results.flatMap((result) => result.event ? [result.event] : []);
     const traces = results.flatMap((result) => result.trace ? [result.trace] : []);
     const memories = results.flatMap((result) => result.memory ? [result.memory] : []);
+    // NPC 闲聊:同地且空闲的居民偶尔互聊一两句,作为 npc.dialogue 事件随本 tick 广播。
+    const nameById = new Map(snapshot.npcs.map((npc) => [npc.profile.id, npc.profile.name]));
+    for (const exchange of maybeSocialize(snapshot.npcs, gameMinute)) {
+      for (const line of exchange) {
+        pendingEvents.push({
+          worldId,
+          gameMinute,
+          type: "npc.dialogue",
+          actorId: line.speakerId,
+          summary: `${nameById.get(line.speakerId) ?? "居民"}对${nameById.get(line.listenerId) ?? "居民"}说：“${clip(line.line)}”`,
+          source: "mock",
+          payload: { speakerId: line.speakerId, listenerId: line.listenerId, line: line.line },
+        });
+      }
+    }
 
     const committed = this.repository.commitTick(worldId, snapshot.world.version, gameMinute, updatedNpcs, pendingEvents, traces, memories);
     if (!committed) return;
@@ -86,6 +101,7 @@ export class SimulationService {
     aiAllowedFor: (npcId: string) => boolean,
   ): Promise<Array<{ npc: Npc; event: PendingWorldEvent | null; trace: AiTrace | null; memory: MemoryWriteRow | null }>> {
     const talkingNpcIds = new Set(this.repository.getActiveDialogueNpcIds(worldId));
+    const { blueprint, grid: navigationGrid } = this.navigationFor(worldId);
     return Promise.all(snapshot.npcs.map(async (npc): Promise<{ npc: Npc; event: PendingWorldEvent | null; trace: AiTrace | null; memory: MemoryWriteRow | null }> => {
       const state = applyPassiveMinute(npc.state);
       if (talkingNpcIds.has(npc.profile.id)) return { npc: { profile: npc.profile, state }, event: null, trace: null, memory: null };
@@ -97,12 +113,12 @@ export class SimulationService {
       const recalled = this.repository.recallMemories(worldId, npc.profile.id, doneAction ? `下一步行动 ${doneAction}` : "下一步行动", {
         worldTimeMinute: gameMinute, maxEntries: 4, maxChars: 400,
       });
-      const decision = await this.decider.decide({ ...npc, state }, snapshot.world, { allowAI: aiAllowedFor(npc.profile.id), knownEvents, recalledMemories: recalled });
+      const decision = await this.decider.decide({ ...npc, state }, snapshot.world, { allowAI: aiAllowedFor(npc.profile.id), knownEvents, recalledMemories: recalled, blueprint });
       const action = decision.action;
       const beforeEffects = state;
       const fromPosition = findNearestWalkable(navigationGrid, state.position);
       const afterEffects = applyActionEffects(state, action);
-      const destination = action.destination.position;
+      const destination = findNearestWalkable(navigationGrid, action.destination.position);
       const sameSpot = Math.hypot(fromPosition.x - destination.x, fromPosition.y - destination.y) < 2;
       const approach = sameSpot ? null : findApproachPath(navigationGrid, fromPosition, destination);
       const path = approach && approach.path.length > 1
@@ -132,13 +148,13 @@ export class SimulationService {
         actorId: npc.profile.id,
         summary: `${npc.profile.name}${action.label}`,
         source: trace.source,
-        causeIds: [],
+        causeIds: causalEventIds(trace.context),
         payload: {
           actionId: action.id,
           action: action.label,
           reason: action.reason,
           locationId: action.destination.locationId,
-          position: action.destination.position,
+          position: destination,
           source: trace.source,
           decisionId: trace.id,
           score: Number(action.score.toFixed(2)),
@@ -146,6 +162,15 @@ export class SimulationService {
         },
       } };
     }));
+  }
+
+  private navigationFor(worldId: string): { blueprint: WorldBlueprint; grid: NavigationGrid } {
+    const existing = this.navigationByWorld.get(worldId);
+    if (existing) return existing;
+    const blueprint = this.repository.getSimulationBlueprint(worldId);
+    const navigation = { blueprint, grid: createNavigationGrid(blueprint) };
+    this.navigationByWorld.set(worldId, navigation);
+    return navigation;
   }
 
   async advanceTo(worldId: string, targetMinute: number, options: { onProgress?: (minute: number, total: number) => void } = {}): Promise<{ fromMinute: number; toMinute: number; stoppedByEmergency: boolean; stopEventId: string | null; snapshotsWritten: number }> {
@@ -193,6 +218,16 @@ export class SimulationService {
     }
     return { fromMinute, toMinute: final?.world.gameMinute ?? targetMinute, stoppedByEmergency, stopEventId, snapshotsWritten };
   }
+}
+
+function clip(value: string, max = 60): string {
+  return value.trim().slice(0, max);
+}
+
+function causalEventIds(context: Record<string, unknown>): string[] {
+  return Array.isArray(context.causalEventIds)
+    ? context.causalEventIds.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 function stateChanges(before: NpcState, after: NpcState): AiTrace["stateChanges"] {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AiTraceSchema, DecisionOutputSchema, type AiTrace, type DecisionCandidate, type Npc, type WorldSummary } from "@ai-town/shared";
+import { AiTraceSchema, DecisionOutputSchema, type AiTrace, type DecisionCandidate, type Npc, type WorldBlueprint, type WorldSummary } from "@ai-town/shared";
 import { getActionCandidates, type MockAction } from "../domain/mock-decision.js";
 import { eventInfluence, type KnownEventSummary } from "../domain/event-influence.js";
 import { buildMemoryContextSection } from "../memory/caption.js";
@@ -17,11 +17,11 @@ const clampScore = (value: number) => Math.min(200, Math.max(0, value));
 export class SimulationDecisionService {
   constructor(private readonly provider: SimulationAIProvider) {}
 
-  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean; knownEvents?: KnownEventSummary[]; recalledMemories?: RecalledMemory[] } = {}): Promise<DecisionResult> {
+  async decide(npc: Npc, world: WorldSummary, options: { allowAI?: boolean; knownEvents?: KnownEventSummary[]; recalledMemories?: RecalledMemory[]; blueprint?: WorldBlueprint } = {}): Promise<DecisionResult> {
     const startedAt = Date.now();
     const knownEvents = options.knownEvents ?? [];
     const recalledMemories = options.recalledMemories ?? [];
-    const candidates = getActionCandidates(npc, world.gameMinute + 1, world.version + 1);
+    const candidates = getActionCandidates(npc, world.gameMinute + 1, world.version + 1, options.blueprint);
     const influence = eventInfluence(npc, knownEvents);
     for (const candidate of candidates) {
       candidate.score += influence.get(candidate.id) ?? 0;
@@ -33,6 +33,9 @@ export class SimulationDecisionService {
       candidate.score = clampScore(candidate.score + bonus.bonus);
     }
     const fallback = [...candidates].sort((a, b) => b.score - a.score)[0];
+    const causalEventIdsFor = (actionId: string) => knownEvents
+      .filter((event) => (eventInfluence(npc, [event]).get(actionId) ?? 0) !== 0)
+      .map((event) => event.eventId);
     const context = {
       townTime: formatTime(world.gameMinute + 1),
       knownEvents,
@@ -48,6 +51,7 @@ export class SimulationDecisionService {
       state: npc.state,
       memoryContext: buildMemoryContextSection(recalledMemories, null),
       recalledMemories: recalledMemories.map((memory) => ({ id: memory.id, kind: memory.kind, content: memory.content, importance: memory.importance, reasons: memory.reasons })),
+      causalEventIds: [] as string[],
     };
     const publicCandidates: DecisionCandidate[] = candidates.map((candidate) => ({
       id: candidate.id,
@@ -90,6 +94,7 @@ export class SimulationDecisionService {
             continue;
           }
           const action = { ...selected, reason: parsed.data.reason };
+          context.causalEventIds = causalEventIdsFor(action.id);
           return { action, trace: AiTraceSchema.parse({
             id: randomUUID(), worldId: world.id, branchId: world.activeBranchId, worldVersion: world.version,
             agentId: npc.profile.id, role: "SIMULATION", status: "success", source: "ai",
@@ -106,6 +111,7 @@ export class SimulationDecisionService {
     }
 
     attempts = Math.max(1, attempts);
+    context.causalEventIds = causalEventIdsFor(fallback.id);
     return { action: fallback, trace: AiTraceSchema.parse({
       id: randomUUID(), worldId: world.id, branchId: world.activeBranchId, worldVersion: world.version,
       agentId: npc.profile.id, role: "SIMULATION", status: "fallback", source: "mock",

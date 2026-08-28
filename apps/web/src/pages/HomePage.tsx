@@ -22,14 +22,14 @@ export function HomePage() {
     <main className="home-page">
       <header className="home-header">
         <div><div className="brand-mark dark">AI BUTTERFLY TOWN</div><h1>你的世界</h1></div>
-        <div className="user-area"><span>{me.data?.username}</span><button onClick={async () => { await api.logout(); navigate("/login"); }}>退出</button></div>
+        <div className="user-area"><span>{me.data?.username}</span><Link to="/dev/ai">AI 工作台</Link><button onClick={async () => { await api.logout(); navigate("/login"); }}>退出</button></div>
       </header>
       <section className="world-grid">
         {worlds.data?.map((world) => (
           <Link className="world-card" key={world.id} to={`/world/${world.id}`}>
             <div className="world-art">
               <span className="sun" /><span className="river" /><span className="house h1" /><span className="house h2" />
-              <div className="world-mode">MOCK · 离线可体验</div>
+              <div className="world-mode">自主运行中</div>
             </div>
             <div className="world-card-body">
               <div><h2>{world.name}</h2><p>{world.description}</p></div>

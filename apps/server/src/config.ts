@@ -9,6 +9,18 @@ export interface AppConfig {
   demoPassword: string;
   tickMs: number;
   serveWeb: boolean;
+  visionAi: {
+    apiKey: string;
+    baseUrl: string;
+    model: string;
+    timeoutMs: number;
+  };
+  imageAi: {
+    apiKey: string;
+    baseUrl: string;
+    model: string;
+    timeoutMs: number;
+  };
   simulationAi: {
     apiKey: string;
     baseUrl: string;
@@ -32,6 +44,18 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     demoPassword: process.env.DEMO_PASSWORD ?? "town1234",
     tickMs: Number(process.env.SIMULATION_TICK_MS ?? 2000),
     serveWeb: process.env.SERVE_WEB === "1",
+    visionAi: {
+      apiKey: process.env.AI_VISION_API_KEY ?? process.env.AI_IMAGE_API_KEY ?? "",
+      baseUrl: process.env.AI_VISION_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3/vision/chat/completions",
+      model: process.env.AI_VISION_MODEL ?? "",
+      timeoutMs: Number(process.env.AI_VISION_TIMEOUT_MS ?? 60000),
+    },
+    imageAi: {
+      apiKey: process.env.AI_IMAGE_API_KEY ?? "",
+      baseUrl: process.env.AI_IMAGE_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+      model: process.env.AI_IMAGE_MODEL ?? "doubao-seedream-5-0-260128",
+      timeoutMs: Number(process.env.AI_IMAGE_TIMEOUT_MS ?? 120000),
+    },
     simulationAi: {
       apiKey: process.env.AI_SIMULATION_API_KEY ?? "",
       baseUrl: process.env.AI_SIMULATION_BASE_URL ?? "https://api.openai.com/v1",

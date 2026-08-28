@@ -7,6 +7,26 @@
   margin: 0 auto;
 }
 
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.page-nav-back,
+.page-nav-logout {
+  font-size: 13px;
+  color: #8fb8ff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.page-nav-logout {
+  color: #9aa1b5;
+}
+
 .new-world-header {
   margin-bottom: 24px;
   text-align: center;
@@ -56,6 +76,7 @@
 }
 
 .new-world-toggle {
+  display: block;
   background: transparent;
   border: none;
   color: #8fb8ff;
@@ -104,6 +125,8 @@
 }
 
 .new-world-create {
+  display: block;
+  width: 100%;
   margin-top: 14px;
   background: #2f6bff;
   border: none;

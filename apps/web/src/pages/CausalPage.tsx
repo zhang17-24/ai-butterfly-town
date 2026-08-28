@@ -20,12 +20,27 @@ const typeLabels: Record<string, string> = {
   "world.paused": "暂停",
 };
 
+function actorLabel(id: string | null | undefined, names: Record<string, string>): string {
+  if (!id) return "世界";
+  if (id.startsWith("player")) return "玩家";
+  return names[id] ?? id.replace(/^npc_/, "");
+}
+
 export function CausalPage() {
   const { worldId = "" } = useParams();
   const [typeFilter, setTypeFilter] = useState("all");
   const [npcFilter, setNpcFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const graph = useQuery({ queryKey: ["causal-graph", worldId], queryFn: () => api.causalGraph(worldId), enabled: Boolean(worldId) });
+  const npcNames = useQuery({
+    queryKey: ["world-npc-names", worldId],
+    queryFn: async () => {
+      const state = await api.worldState(worldId);
+      return Object.fromEntries(state.npcs.map((npc) => [npc.profile.id, npc.profile.name]));
+    },
+    enabled: Boolean(worldId),
+  });
+  const nameMap = npcNames.data ?? {};
 
   const npcIds = useMemo(() => new Set(graph.data?.events.map((event) => event.actorId).filter(Boolean) ?? []), [graph.data]);
   const filtered = useMemo(() => (graph.data?.events ?? []).filter((event) =>
@@ -47,7 +62,7 @@ export function CausalPage() {
           </select>
           <select value={npcFilter} onChange={(event) => setNpcFilter(event.target.value)}>
             <option value="all">全部居民</option>
-            {[...npcIds].map((id) => <option key={id} value={id ?? ""}>{id?.replace("npc_", "") ?? "世界"}</option>)}
+            {[...npcIds].map((id) => <option key={id} value={id ?? ""}>{actorLabel(id, nameMap)}</option>)}
           </select>
         </div>
       </header>
@@ -60,7 +75,7 @@ export function CausalPage() {
             {[...filtered].reverse().map((event) => (
               <button key={event.id} className={selectedId === event.id ? "event-card selected" : "event-card"} onClick={() => setSelectedId(event.id)}>
                 <span className={`type-badge type-${event.type}`}>{typeLabels[event.type] ?? event.type}</span>
-                <div><b>{formatTime(event.gameMinute)} · {event.actorId?.replace("npc_", "") ?? "世界"}</b><p>{event.summary}</p></div>
+                <div><b>{formatTime(event.gameMinute)} · {actorLabel(event.actorId, nameMap)}</b><p>{event.summary}</p></div>
                 {event.causeIds.length > 0 && <span className="cause-chip">↳ {event.causeIds.length} 个起因</span>}
               </button>
             ))}
@@ -74,7 +89,7 @@ export function CausalPage() {
                 {parents.length === 0 && <div className="chain-node root"><b>根事件</b><p>没有起因引用</p></div>}
                 {parents.map((parent) => (
                   <div key={parent.id} className="chain-node">
-                    <b>{parent.actorId?.replace("npc_", "") ?? "世界"} · {typeLabels[parent.type] ?? parent.type}</b>
+                    <b>{actorLabel(parent.actorId, nameMap)} · {typeLabels[parent.type] ?? parent.type}</b>
                     <p>{parent.summary}</p>
                   </div>
                 ))}
@@ -82,7 +97,7 @@ export function CausalPage() {
                 <div className="chain-node current"><b>{formatTime(selected.gameMinute)} · 此事件</b><p>{selected.summary}</p></div>
                 {selectedChildren.length > 0 && <>
                   <div className="chain-arrow">↓ 引起的后续</div>
-                  {selectedChildren.map((child) => <div key={child.id} className="chain-node"><b>{child.actorId?.replace("npc_", "") ?? "世界"} · {typeLabels[child.type] ?? child.type}</b><p>{child.summary}</p></div>)}
+                  {selectedChildren.map((child) => <div key={child.id} className="chain-node"><b>{actorLabel(child.actorId, nameMap)} · {typeLabels[child.type] ?? child.type}</b><p>{child.summary}</p></div>)}
                 </>}
               </div>
               {selectedEdges.length > 0 && <p className="detail-meta">因果边：{selectedEdges.length} 条</p>}

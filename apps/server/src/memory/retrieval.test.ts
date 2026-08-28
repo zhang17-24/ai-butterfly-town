@@ -146,3 +146,18 @@ describe("存档过滤与确定性", () => {
     expect(result.map((item) => item.id)).toEqual(["kept"]);
   });
 });
+
+describe("召回内容去重", () => {
+  it("同内容只保留最高分一条,并在保留条上标注合并", () => {
+    const entries = [
+      entry({ id: "dup_low", kind: "action", content: "我完成了：回公寓休息（在apartment）", importance: 40, createdAtMinute: 520 }),
+      entry({ id: "dup_high", kind: "action", content: "我完成了：回公寓休息（在apartment）", importance: 40, createdAtMinute: 522 }),
+      entry({ id: "other", kind: "action", content: "我完成了：巡视诊所", importance: 40, createdAtMinute: 523 }),
+    ];
+    const result = retrieveMemories(entries, { agentId: "npc_x", query: "下一步行动 回公寓休息", worldTimeMinute: 700 });
+    expect(result.map((item) => item.id)).not.toContain("dup_low");
+    expect(result.filter((item) => item.content.includes("回公寓休息"))).toHaveLength(1);
+    const kept = result.find((item) => item.content.includes("回公寓休息"));
+    expect(kept?.reasons.join(";")).toContain("重复内容已合并");
+  });
+});

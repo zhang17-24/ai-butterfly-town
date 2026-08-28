@@ -184,9 +184,15 @@ export function retrieveMemories(entries: MemoryEntryView[], ctx: RecallContext)
   recalled.sort((a, b) => b.score.total - a.score.total);
 
   const limited = recalled.slice(0, budget.maxEntries);
+  // 内容去重:同内容多条(如重复动作记忆)只保留最高分一条,其余并入保留条的召回理由。
   const accepted: RecalledMemory[] = [];
   let usedChars = 0;
   for (const item of limited) {
+    const kept = accepted.find((candidate) => candidate.content === item.content);
+    if (kept) {
+      kept.reasons.push("重复内容已合并(保留最高分)");
+      continue;
+    }
     const length = Array.from(item.content).length + 2;
     if (usedChars + length > budget.maxChars) break;
     usedChars += length;

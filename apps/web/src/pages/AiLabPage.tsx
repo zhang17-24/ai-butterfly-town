@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import type { AiTrace, WorldSummary } from "@ai-town/shared";
 import { api as serviceApi } from "../services/api";
 import "./AiLabPage.css";
@@ -246,6 +247,7 @@ const selectOptions = {
 };
 
 export function AiLabPage(props: AiLabPageProps) {
+  const navigate = useNavigate();
   const api: AiLabApi = props.api ?? realApi;
 
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
@@ -347,11 +349,15 @@ export function AiLabPage(props: AiLabPageProps) {
 
   return (
     <main className="ai-lab">
+      <nav className="page-nav">
+        <Link className="page-nav-back" to="/">← 返回世界库</Link>
+        <button className="page-nav-logout" onClick={async () => { await serviceApi.logout(); navigate("/login"); }}>退出登录</button>
+      </nav>
       <header className="ai-lab-header">
         <div>
           <div className="brand-mark dark">AI BUTTERFLY TOWN</div>
-          <h1>AI 调试工作台</h1>
-          <p className="ai-lab-sub">M8 组件 · trace 已接入真实服务端(重放/对比暂无后端,保留 Mock)</p>
+          <h1>AI 工作台</h1>
+          <p className="ai-lab-sub">查看每条 AI 决策与对话的完整过程，对比真实模型与本地规则。</p>
         </div>
       </header>
 

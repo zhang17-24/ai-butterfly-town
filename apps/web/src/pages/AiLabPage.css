@@ -5,6 +5,27 @@
   padding: 28px 32px 64px;
 }
 
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.page-nav-back,
+.page-nav-logout {
+  font-size: 13px;
+  color: #8fb8ff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.page-nav-logout {
+  color: #9aa1b5;
+  font-size: 13px;
+}
+
 .ai-lab-header {
   display: flex;
   justify-content: space-between;

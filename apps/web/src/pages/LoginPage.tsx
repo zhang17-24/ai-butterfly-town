@@ -29,13 +29,13 @@ export function LoginPage() {
         <div className="brand-mark">AI TOWN / 01</div>
         <h1>让一座小镇<br />自己生活。</h1>
         <p>观察五位性格不同的居民如何规划、行动、相遇，并在玩家介入后改变彼此的世界。</p>
-        <div className="story-status"><span />栖溪镇正在运行 · Mock 离线模式</div>
+        <div className="story-status"><span />栖溪镇正在运行 · 随时可玩</div>
       </section>
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
           <div className="eyebrow">WELCOME BACK</div>
           <h2>进入观察站</h2>
-          <p>第一天纵向切片已预置演示账号。</p>
+          <p>已为你准备好演示账号，登录即可开始观察。</p>
           <label>账号<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
           <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>
           {error && <div className="form-error" role="alert">{error}</div>}

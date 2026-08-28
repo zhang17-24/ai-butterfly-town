@@ -161,6 +161,15 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
+CREATE TABLE IF NOT EXISTS world_assets (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  agent_id TEXT,
+  content_b64 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_world_assets_key ON world_assets(world_id, kind, agent_id);
 `;
 
 // 迁移:schema 演进(幂等)。worlds 历史行保持 NULL = 内置栖溪镇默认为权威(qixi)。
