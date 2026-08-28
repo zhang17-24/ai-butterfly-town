@@ -12,6 +12,19 @@ type NpcMarker = Phaser.GameObjects.Container & {
 
 const SPRITE_IDS = ["npc_lin_xia", "npc_shen_zhiheng", "npc_he_jianguo", "npc_zhou_fang", "npc_tang_yucheng", "player"] as const;
 
+/**
+ * 正面走动画的安全帧(行2 = 帧6..11):Seedream 生成的 6×5 表「行语义」并不完全一致,
+ * 个别表的行2 混入背影/侧身帧,统一播放会像「原地转身」。逐帧人工验收后在此只保留纯正面帧。
+ */
+const WALK_FRONT_FRAMES: Record<string, readonly number[]> = {
+  npc_lin_xia: [6, 7, 10],         // 8/9 = 完全侧面帧
+  npc_shen_zhiheng: [6, 7, 8, 10], // 9 = 半侧,11 = 背影
+  npc_he_jianguo: [6, 7, 8],       // 9/10 = 背影帧
+  npc_zhou_fang: [6, 7, 8, 10],    // 9 = 微侧,11 = 微侧(背包偏移)
+  npc_tang_yucheng: [6, 7, 8, 9],
+  player: [6, 7, 8, 9],
+};
+
 /** 场景显示尺寸固定为 900x620(map 图统一 setDisplaySize 到此尺寸)。 */
 const VIEW_WIDTH = 900;
 const VIEW_HEIGHT = 620;
@@ -340,8 +353,9 @@ export class TownScene extends Phaser.Scene {
         texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
         const prefix = `npc-${id}`;
         if (!this.anims.exists(`${prefix}-walk-front`)) {
-          const frames = (start: number, end: number) => Array.from({ length: end - start + 1 }, (_, offset) => ({ key, frame: `${start + offset}` }));
-          this.anims.create({ key: `${prefix}-walk-front`, frames: frames(6, 9), frameRate: 5, repeat: -1 });
+          const walkFrames = WALK_FRONT_FRAMES[prefix] ?? [6, 7, 8, 9];
+          const frames = walkFrames.map((frame) => ({ key, frame: String(frame) }));
+          this.anims.create({ key: `${prefix}-walk-front`, frames, frameRate: 4, repeat: -1 });
           this.anims.create({ key: `${prefix}-idle-front`, frames: [{ key, frame: "18" }], frameRate: 1 });
         }
       } catch {
