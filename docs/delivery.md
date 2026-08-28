@@ -37,6 +37,8 @@ pnpm dev            # 服务端 :3100 + 前端 :3200
 
 ## 3. 部署上线
 
+> ✅ 仓库已推送:`github.com/zhang17-24/ai-butterfly-town`(private,main)。新增改动后 `bash scripts/release-git.sh` 一键再推。
+
 ### 方式 A:Docker(本地 / 任意主机)
 
 ```bash
