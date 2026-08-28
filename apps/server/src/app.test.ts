@@ -24,6 +24,9 @@ describe("day-one vertical slice", () => {
     const setCookie = login.headers["set-cookie"];
     const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(";")[0];
     expect(cookie).toContain("ai_town_session=");
+    // 纯 HTTP 部署(如 http://公网IP 直连)下 Secure cookie 会被浏览器拒收:
+    // 仅在 x-forwarded-proto: https 或 COOKIE_SECURE=1 时才带 Secure。
+    expect(login.headers["set-cookie"]).not.toContain("Secure");
 
     const worlds = await built.app.inject({ method: "GET", url: "/api/worlds", headers: { cookie: cookie! } });
     expect(worlds.statusCode).toBe(200);
@@ -48,6 +51,19 @@ describe("day-one vertical slice", () => {
     const traces = await built.app.inject({ method: "GET", url: "/api/worlds/world_qixi_town/agents/npc_lin_xia/decisions", headers: { cookie: cookie! } });
     expect(traces.statusCode).toBe(200);
     expect(traces.json()[0]).toMatchObject({ agentId: "npc_lin_xia", source: "mock", status: "fallback", fallbackReason: "AI_KEY_OR_MODEL_MISSING" });
+  });
+
+  it("sets Secure cookie when HTTPS is forwarded or COOKIE_SECURE is set", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "demo", password: "town1234" },
+      headers: { "x-forwarded-proto": "https" },
+    });
+    expect(login.statusCode).toBe(200);
+    expect(login.headers["set-cookie"]).toContain("Secure");
   });
 
   it("rejects world access without a login cookie", async () => {

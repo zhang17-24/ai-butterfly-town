@@ -1,0 +1,82 @@
+# Render Blueprint 一键部署(与美团 hackathon-meituan 同款模式)。
+# 用法:Push 到 GitHub → Render Dashboard → New Blueprint → 选本仓库 → Deploy。
+#       部署前把下面两个 YOUR_ 占位值改掉(或部署后到环境变量面板设置):
+#           AI_SIMULATION_API_KEY  ← DeepSeek key
+#           AI_IMAGE_API_KEY      ← 火山方舟/豆包 key
+#
+# 免费实例:plan: starter 起(需要 Persistent Disk 存 SQLite);
+# 免费 plan 就去掉下方的 disk 段 —— 实例重启会重置数据库(可用 demo 账号重新生成世界)。
+
+services:
+  - type: web
+    name: ai-butterfly-town
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      # ---- 运行时 ----
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: "1"
+      - key: DATABASE_PATH
+        value: /app/data/ai-town.db
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: DEMO_USERNAME
+        value: demo
+      - key: DEMO_PASSWORD
+        value: town1234
+      - key: SIMULATION_TICK_MS
+        value: "2000"
+
+      # ---- DeepSeek 对话/决策(必配,替换 YOUR_DEEPSEEK_API_KEY) ----
+      - key: AI_SIMULATION_API_KEY
+        value: YOUR_DEEPSEEK_API_KEY
+      - key: AI_SIMULATION_BASE_URL
+        value: https://api.deepseek.com/v1
+      - key: AI_SIMULATION_MODEL
+        value: deepseek-chat
+      - key: AI_SIMULATION_API_STYLE
+        value: chat
+      - key: AI_SIMULATION_CHAT_PATH
+        value: /chat/completions
+      - key: AI_SIMULATION_TIMEOUT_MS
+        value: "30000"
+      - key: AI_SIMULATION_MAX_OUTPUT_TOKENS
+        value: "180"
+      - key: AI_SIMULATION_MAX_CONCURRENCY
+        value: "2"
+      - key: AI_SIMULATION_MAX_DECISIONS_PER_TICK
+        value: "99"
+
+      # ---- 豆包 Seedream 生图(必配,替换 YOUR_VOLCES_API_KEY) ----
+      - key: AI_IMAGE_API_KEY
+        value: YOUR_VOLCES_API_KEY
+      - key: AI_IMAGE_BASE_URL
+        value: https://ark.cn-beijing.volces.com/api/v3/images/generations
+      - key: AI_IMAGE_MODEL
+        value: doubao-seedream-5-0-260128
+      - key: AI_IMAGE_TIMEOUT_MS
+        value: "120000"
+
+      # ---- 豆包视觉审查(可选;留空自动回退像素统计审查,务必保持空串) ----
+      - key: AI_VISION_API_KEY
+        value: ""
+      - key: AI_VISION_BASE_URL
+        value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
+      - key: AI_VISION_MODEL
+        value: ""
+      - key: AI_VISION_TIMEOUT_MS
+        value: "120000"
+
+      # 同源单服务部署不需要;前端另托管时填 http(s)://<前端域名>
+      - key: WEB_ORIGIN
+        value: ""
+
+    disk:
+      name: sqlite-data
+      mountPath: /app/data
+      sizeGB: 1

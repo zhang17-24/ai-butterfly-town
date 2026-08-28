@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec, type Job, type MemoryEntry, type RealtimeMessage, type TownEvent, type WorldBlueprint } from "@ai-town/shared";
-import { api, mapImageUrl as mapImageHref } from "../services/api";
+import { api, clientId, mapImageUrl as mapImageHref } from "../services/api";
 import { gameEvents } from "../game/event-bus";
 import { toSpeechLines } from "../game/speech-events";
 import { useWorldStore } from "../state/world-store";
@@ -125,7 +125,7 @@ export function WorldPage() {
 
   useEffect(() => {
     if (initial.data) store.applyMessage({
-      eventId: crypto.randomUUID(),
+      eventId: clientId(),
       worldId: initial.data.world.id,
       branchId: initial.data.world.activeBranchId,
       version: initial.data.world.version,

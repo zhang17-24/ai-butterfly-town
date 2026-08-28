@@ -58,8 +58,12 @@ pnpm verify
 - Docker：`Dockerfile` + `docker-compose.yml` 单服务托管 Web 静态文件、REST、WebSocket 与仿真 Worker，开放 `http://localhost:3100`，数据库挂载到 `ai-town-data` 卷。
 
 ```bash
-docker compose up --build
+cp .env.example .env   # 填入 DeepSeek / Seedream 密钥(见文件内注释)
+docker compose up --build -d
+## 浏览器打开 http://localhost:3100,账号 demo / town1234
 ```
+
+> 云部署已备好 `render.yaml`:**Render → New Blueprint → 选仓库 → 面板粘贴两个 API Key → Deploy**,一个容器解决全部服务(静态页 + REST + WebSocket + 仿真 Worker + 生图 Job)。免费实例去掉 `disk` 段;`AI_VISION_*` 留空自动回退像素统计审查。
 
 > 已修复(D102):`packages/shared` 以 `dist`+类型导出,`node apps/server/dist/index.js` 单命令可跑(本地已以 `docker build` + 容器内登录/世界/首页冒烟验证)。
 - `CI` 现已含 `pnpm lint`(eslint flat,typescript+react-hooks;0 error)。

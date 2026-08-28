@@ -65,7 +65,7 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   repository.seedDemo(config.demoUsername, bcrypt.hashSync(config.demoPassword, 10));
 
   const app = Fastify({ logger: false });
-  await app.register(cors, { origin: config.webOrigin, credentials: true });
+  await app.register(cors, { origin: config.webOrigin || true, credentials: true });
   await app.register(cookie);
 
   app.decorateRequest("userId", null);
@@ -109,11 +109,14 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     if (!user || !bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
       return reply.code(401).send({ error: "账号或密码错误" });
     }
+    // Secure 仅当确有 HTTPS(反代转发 x-forwarded-proto: https 或显式 COOKIE_SECURE=1)时启用:
+    // 纯 HTTP 端口(如腾讯云 http://公网IP 直连)下 Secure cookie 会被浏览器拒收导致登录失效。
+    const isHttps = request.headers["x-forwarded-proto"] === "https" || process.env.COOKIE_SECURE === "1";
     reply.setCookie(SESSION_COOKIE, createSessionToken(user.id, config.cookieSecret), {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       maxAge: 60 * 60 * 24 * 7,
     });
     return { id: user.id, username: user.username };

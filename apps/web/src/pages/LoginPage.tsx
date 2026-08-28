@@ -4,8 +4,8 @@ import { api } from "../services/api";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("demo");
-  const [password, setPassword] = useState("town1234");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,12 +35,10 @@ export function LoginPage() {
         <form className="login-card" onSubmit={submit}>
           <div className="eyebrow">WELCOME BACK</div>
           <h2>进入观察站</h2>
-          <p>已为你准备好演示账号，登录即可开始观察。</p>
           <label>账号<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
-          <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>
+          <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="请输入密码" /></label>
           {error && <div className="form-error" role="alert">{error}</div>}
-          <button className="primary-button" disabled={loading}>{loading ? "正在进入…" : "进入栖溪镇"}</button>
-          <div className="demo-hint">演示账号：demo / town1234</div>
+          <button className="primary-button" disabled={loading}>{loading ? "正在进入…" : "进入观察站"}</button>
         </form>
       </section>
     </main>

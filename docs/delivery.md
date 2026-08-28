@@ -39,49 +39,27 @@ pnpm dev            # 服务端 :3100 + 前端 :3200
 
 > ✅ 仓库已推送:`github.com/zhang17-24/ai-butterfly-town`(private,main)。新增改动后 `bash scripts/release-git.sh` 一键再推。
 
-### 方式 A:Docker(本地 / 任意主机)
+### 方式 A:Docker(本地 / 任意主机)—— 一条命令
 
 ```bash
-docker compose up --build -d      # 单服务:静态页+REST+WS+仿真都在这一个容器
-# 访问 http://localhost:3100
-docker compose exec ai-town sh -c "cat /etc/hosts" # 手动冒烟:curl :3100/api/health
+cp .env.example .env                 # 填入 DeepSeek / Seedream 密钥(见文件内注释)
+docker compose up --build -d         # 单服务:静态页+REST+WS+仿真+Job Worker 都在这一个容器
+curl localhost:3100/api/health       # {"status":"ok",...}
+# 浏览器访问 http://localhost:3100,demo/town1234 登录
 ```
-生产环境变量用宿主机 `.env` 注入 compose(参考 `docker compose.yml` 的 `${VAR}` 透传)。
+- 容器内 `SERVE_WEB=1`:server 托管 `apps/web/dist` 静态文件 + SPA fallback,cookie/CORS 同源零配置。
+- 数据库在命名卷 `ai-town-data`(`/app/data/ai-town.db`),容器重建不丢。
+- 密钥仅宿主机 `.env`(compose 透传);镜像内不包含任何密钥(`.dockerignore` 已排除 `.env`)。
 
-### 方式 B:Render(推荐,参考同机美团项目的 render.yaml 做法)
+### 方式 B:Render(推荐,与美团项目同款 Blueprint 模式)
 
-新建 `render.yaml`(Blueprint 一键部署,与美团项目同款模式):
+仓库根目录已带现成的 **`render.yaml`**(Blueprint 一键部署,变量已全部列出,含 DeepSeek/Seedream/视觉三项)。
 
-```yaml
-services:
-  - type: web
-    name: ai-town
-    runtime: docker
-    plan: starter            # 需要持久磁盘存 SQLite,starter($7/月)起步
-    dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/health
-    envVars:
-      - key: COOKIE_SECRET
-        generateValue: true
-      - key: DEMO_USERNAME
-        value: demo
-      - key: DEMO_PASSWORD
-        value: town1234
-      - key: AI_SIMULATION_API_KEY
-        sync: false          # 面板里粘贴,不落仓库
-      - key: AI_IMAGE_API_KEY
-        sync: false
-    disk:
-      name: ai-town-data
-      mountPath: /app/data
-      sizeGB: 1
-```
-
-步骤:GitHub 仓库 → Render Dashboard → New Blueprint → 选仓库 → 粘贴上述 envVars → Deploy。
+步骤:GitHub 仓库 → Render Dashboard → New Blueprint → 选仓库 → 面板粘贴 `AI_SIMULATION_API_KEY` 与 `AI_IMAGE_API_KEY`(真实值)→ Deploy。
 要点:
-- 镜像内 `SERVE_WEB=1` 时一个端口全搞定(cookie/CORS 同源,无需配域)。
-- 免费层冷启动:Render 免费版 15 分钟不访问会回收内存,首次打开等待约 30–60s(演示前先热一下)。
-- 有磁盘的数据(记忆/事件/快照)全在 `/app/data/ai-town.db`,容器重建不丢。
+- 免费实例不支持持久磁盘:去掉 `render.yaml` 的 `disk` 段即可,代价是数据库在实例重启后重置(演示前先热,见 §6 翻车点)。
+- starter 实例 + 1GB 磁盘:记忆/事件/快照/资产全在 `/app/data/ai-town.db`,持久保存。
+- `render.yaml` 中 `AI_VISION_*` 留空即自动回退像素统计审查(真实计算,非 mock)。
 
 ## 4. 面试官体验路径(推荐演示动线)
 

@@ -1,0 +1,8 @@
+# 云端生产端口覆盖(与 docker-compose.yml 组合使用):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# 80 端口:云主机安全组默认放行,访问 http://<公网IP>/ 即可,无需再开防火墙规则。
+# 若已用 Nginx/反向代理,请改为 127.0.0.1:3100:3100 并保留默认文件。
+services:
+  ai-town:
+    ports:
+      - "80:3100"

@@ -6,6 +6,18 @@ class ApiRequestError extends Error {
   }
 }
 
+// crypto.randomUUID 仅在 secure context(HTTPS/localhost)存在;
+// 纯 HTTP 部署(如 http://公网IP)下不可用,用作幂等键需回退实现。
+export function clientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
   if (typeof options.body === "string") headers["Content-Type"] = "application/json";
@@ -41,7 +53,7 @@ export const api = {
   async setPaused(worldId: string, paused: boolean, expectedVersion: number): Promise<WorldSummary> {
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/pause`, {
       method: "POST",
-      body: JSON.stringify({ paused, expectedVersion: version, idempotencyKey: crypto.randomUUID() }),
+      body: JSON.stringify({ paused, expectedVersion: version, idempotencyKey: clientId() }),
     });
     try {
       return WorldSummarySchema.parse(await commit(expectedVersion));
@@ -52,7 +64,7 @@ export const api = {
     }
   },
   async movePlayer(worldId: string, target: Position, expectedVersion: number): Promise<PlayerMoveResult> {
-    const idempotencyKey = crypto.randomUUID();
+    const idempotencyKey = clientId();
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/player/move`, {
       method: "POST",
       body: JSON.stringify({ target, expectedVersion: version, idempotencyKey }),
@@ -66,7 +78,7 @@ export const api = {
     }
   },
   async startDialogue(worldId: string, npcId: string, expectedVersion: number): Promise<DialogueStartResult> {
-    const idempotencyKey = crypto.randomUUID();
+    const idempotencyKey = clientId();
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/dialogues/start`, {
       method: "POST", body: JSON.stringify({ npcId, expectedVersion: version, idempotencyKey }),
     });
@@ -92,7 +104,7 @@ export const api = {
     return EventPreviewResultSchema.parse(await request<unknown>(`/worlds/${worldId}/events/preview`, { method: "POST", body: JSON.stringify({ text }) }));
   },
   async commitEvent(worldId: string, preview: EventPreviewSpec, expectedVersion: number): Promise<EventCommitResult> {
-    const idempotencyKey = crypto.randomUUID();
+    const idempotencyKey = clientId();
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/events/commit`, {
       method: "POST", body: JSON.stringify({ preview, expectedVersion: version, idempotencyKey }),
     });
@@ -123,7 +135,7 @@ export const api = {
     return JobSchema.parse(await request<unknown>(`/worlds/jobs/${jobId}`));
   },
   async skipTime(worldId: string, targetMinute: number, expectedVersion: number): Promise<Job> {
-    const idempotencyKey = crypto.randomUUID();
+    const idempotencyKey = clientId();
     const commit = (version: number) => request<unknown>(`/worlds/${worldId}/skip`, {
       method: "POST",
       body: JSON.stringify({ targetMinute, expectedVersion: version, idempotencyKey }),
@@ -142,7 +154,7 @@ export const api = {
       body: JSON.stringify({
         forkEventId: options.forkEventId ?? null,
         expectedVersion: options.expectedVersion,
-        idempotencyKey: options.idempotencyKey ?? crypto.randomUUID(),
+        idempotencyKey: options.idempotencyKey ?? clientId(),
       }),
     });
     return { ...raw, world: WorldSummarySchema.parse(raw.world) };

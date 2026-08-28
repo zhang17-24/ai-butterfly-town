@@ -1,6 +1,9 @@
+# 一条命令部署:cp .env.example .env(填密钥)&& docker compose up --build -d
+# 云主机建议映射 80:3100(直接 http://<公网IP>/ 访问,安全组默认放行 80)
 services:
   ai-town:
     build: .
+    restart: unless-stopped
     ports:
       - "3100:3100"
     environment:
@@ -11,16 +14,27 @@ services:
       COOKIE_SECRET: ${COOKIE_SECRET:-change-me-in-production}
       DEMO_USERNAME: ${DEMO_USERNAME:-demo}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-town1234}
-      # 配置后 AI 决策与对话走真实模型;留空则全程 Mock
+      SIMULATION_TICK_MS: ${SIMULATION_TICK_MS:-2000}
+      # DeepSeek:配置后 AI 决策与玩家对话走真实模型;留空则 Mock
       AI_SIMULATION_API_KEY: ${AI_SIMULATION_API_KEY:-}
       AI_SIMULATION_BASE_URL: ${AI_SIMULATION_BASE_URL:-https://api.deepseek.com/v1}
       AI_SIMULATION_MODEL: ${AI_SIMULATION_MODEL:-deepseek-chat}
       AI_SIMULATION_API_STYLE: ${AI_SIMULATION_API_STYLE:-chat}
       AI_SIMULATION_CHAT_PATH: ${AI_SIMULATION_CHAT_PATH:-/chat/completions}
-      AI_SIMULATION_TIMEOUT_MS: ${AI_SIMULATION_TIMEOUT_MS:-15000}
+      AI_SIMULATION_TIMEOUT_MS: ${AI_SIMULATION_TIMEOUT_MS:-30000}
+      AI_SIMULATION_MAX_OUTPUT_TOKENS: ${AI_SIMULATION_MAX_OUTPUT_TOKENS:-180}
+      AI_SIMULATION_MAX_CONCURRENCY: ${AI_SIMULATION_MAX_CONCURRENCY:-2}
+      AI_SIMULATION_MAX_DECISIONS_PER_TICK: ${AI_SIMULATION_MAX_DECISIONS_PER_TICK:-99}
+      # 豆包 Seedream 生图:配置后世界生成走真实地图 + 精灵表
       AI_IMAGE_API_KEY: ${AI_IMAGE_API_KEY:-}
       AI_IMAGE_BASE_URL: ${AI_IMAGE_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3/images/generations}
       AI_IMAGE_MODEL: ${AI_IMAGE_MODEL:-doubao-seedream-5-0-260128}
+      AI_IMAGE_TIMEOUT_MS: ${AI_IMAGE_TIMEOUT_MS:-120000}
+      # 豆包视觉审查(可选;无视觉授权留空,自动回退像素统计审查)
+      AI_VISION_API_KEY: ${AI_VISION_API_KEY:-}
+      AI_VISION_BASE_URL: ${AI_VISION_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3/chat/completions}
+      AI_VISION_MODEL: ${AI_VISION_MODEL:-}
+      AI_VISION_TIMEOUT_MS: ${AI_VISION_TIMEOUT_MS:-120000}
     volumes:
       - ai-town-data:/app/data
 volumes:
