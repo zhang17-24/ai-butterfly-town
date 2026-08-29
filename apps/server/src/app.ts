@@ -214,6 +214,8 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
   app.post<{ Params: { worldId: string } }>("/api/worlds/:worldId/dialogues/start", { preHandler: requireUser }, async (request, reply) => {
     const parsed = StartDialogueSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_DIALOGUE", message: "对话请求格式不正确", recoverable: true, details: {} } });
+    const paused = repository.getSimulationState(request.params.worldId)?.world.paused;
+    if (paused) return reply.code(409).send({ error: { code: "WORLD_PAUSED", message: "世界已暂停，恢复时间流动后才能与居民对话", recoverable: true, details: {} } });
     const command = repository.executeStartDialogueCommand({ userId: request.userId!, worldId: request.params.worldId, ...parsed.data });
     if (command.kind === "not_found") return reply.code(404).send({ error: { code: "WORLD_PLAYER_OR_NPC_NOT_FOUND", message: "世界、玩家或居民不存在", recoverable: false, details: {} } });
     if (command.kind === "busy") return reply.code(409).send({ error: { code: "DIALOGUE_ALREADY_ACTIVE", message: "请先结束当前对话", recoverable: true, details: {} } });
@@ -238,6 +240,7 @@ export async function buildApp(overrides: Partial<AppConfig> = {}) {
     if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_MESSAGE", message: "请输入 1–500 个字符", recoverable: true, details: {} } });
     const context = repository.dialogueContext(request.userId!, request.params.sessionId);
     if (!context) return reply.code(404).send({ error: { code: "DIALOGUE_NOT_ACTIVE", message: "对话不存在或已经结束", recoverable: true, details: {} } });
+    if (context.world.paused) return reply.code(409).send({ error: { code: "WORLD_PAUSED", message: "世界已暂停，恢复时间流动后才能与居民对话", recoverable: true, details: {} } });
     const recalled = repository.recallMemories(context.world.id, context.npc.profile.id, parsed.data.content, {
       worldTimeMinute: context.world.gameMinute, relatedAgentId: context.player.id, maxEntries: 6, maxChars: 600,
     });

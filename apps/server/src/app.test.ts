@@ -172,6 +172,28 @@ describe("day-one vertical slice", () => {
     expect(noActive.json()).toBeNull();
   });
 
+  it("rejects dialogue start and messages while the world is paused (no AI spend)", async () => {
+    const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
+    activeApp = built.app;
+    const login = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "demo", password: "town1234" } });
+    const setCookie = login.headers["set-cookie"];
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(";")[0];
+    const start = await built.app.inject({ method: "POST", url: "/api/worlds/world_qixi_town/dialogues/start", headers: { cookie: cookie! }, payload: { npcId: "npc_lin_xia", expectedVersion: 1, idempotencyKey: "paused-dialogue-1" } });
+    expect(start.statusCode).toBe(200);
+    const sessionId = start.json().session.id;
+
+    const pausedResp = await built.app.inject({ method: "POST", url: "/api/worlds/world_qixi_town/pause", headers: { cookie: cookie! }, payload: { paused: true, expectedVersion: start.json().world.version, idempotencyKey: "pause-for-spend-test" } });
+    expect(pausedResp.statusCode).toBe(200);
+
+    const startWhilePaused = await built.app.inject({ method: "POST", url: "/api/worlds/world_qixi_town/dialogues/start", headers: { cookie: cookie! }, payload: { npcId: "npc_lin_xia", expectedVersion: pausedResp.json().version, idempotencyKey: "paused-dialogue-2" } });
+    expect(startWhilePaused.statusCode).toBe(409);
+    expect(startWhilePaused.json().error.code).toBe("WORLD_PAUSED");
+
+    const messageWhilePaused = await built.app.inject({ method: "POST", url: `/api/dialogues/${sessionId}/messages`, headers: { cookie: cookie! }, payload: { content: "还在吗？" } });
+    expect(messageWhilePaused.statusCode).toBe(409);
+    expect(messageWhilePaused.json().error.code).toBe("WORLD_PAUSED");
+  });
+
   it("commits a versioned pause command once for the same idempotency key", async () => {
     const built = await buildApp({ databasePath: ":memory:", tickMs: 60_000, cookieSecret: "test-secret" });
     activeApp = built.app;
