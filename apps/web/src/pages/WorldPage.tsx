@@ -7,6 +7,8 @@ import { gameEvents } from "../game/event-bus";
 import { toSpeechLines } from "../game/speech-events";
 import { useWorldStore } from "../state/world-store";
 import { TownCanvas } from "../game/TownCanvas";
+import { Town3DCanvas } from "../game3d/Town3DCanvas";
+import { readRendererPreference, writeRendererPreference, type RendererKind } from "../game3d/rendererPreference";
 
 function formatTime(minutes: number) {
   const hour = Math.floor(minutes / 60) % 24;
@@ -43,6 +45,7 @@ export function WorldPage() {
   const queryClient = useQueryClient();
   const [approachingNpcId, setApproachingNpcId] = useState<string | null>(null);
   const [walkableHigh, setWalkableHigh] = useState(false);
+  const [renderer, setRenderer] = useState<RendererKind>(readRendererPreference);
   const [npcSprites, setNpcSprites] = useState<Record<string, string>>({});
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventDraft, setEventDraft] = useState("");
@@ -266,12 +269,17 @@ export function WorldPage() {
       <header className="world-topbar">
         <div className="world-title"><Link to="/" title="返回世界库">←</Link><div><b>{store.world.name}</b><span title={store.world.description}>{store.world.description}</span></div></div>
         <div className="world-clock"><span className="clock-label">{formatWeekday(store.world.gameMinute)}</span><strong>{formatTime(store.world.gameMinute)}</strong><span className={store.connected ? "live on" : "live"}>{store.connected ? "实时" : "重连中"}</span></div>
-        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><span className="skip-group">跳过<button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(30); }}>+30分</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(60); }}>+1时</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(180); }}>+3时</button></span><button disabled={createBranch.isPending} onClick={() => createBranch.mutate()}>{createBranch.isPending ? "创建中…" : "创建分支"}</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button><button className="topbar-logout" onClick={async () => { await api.logout(); window.location.href = "/login"; }}>退出</button></div>
+        <div className="top-actions"><span className="mode-chip">AI / Mock 自动</span><button className={walkableHigh ? "walkable-toggle on" : "walkable-toggle"} onClick={() => { setWalkableHigh((value) => !value); gameEvents.dispatchEvent(new CustomEvent("walkable:visible", { detail: !walkableHigh })); }}>行走区域</button><button
+          className="walkable-toggle"
+          onClick={() => { const next: RendererKind = renderer === "3d" ? "2d" : "3d"; setRenderer(next); writeRendererPreference(next); }}
+        >{renderer === "3d" ? "3D 视图" : "2D 视图"}</button><span className="skip-group">跳过<button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(30); }}>+30分</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(60); }}>+1时</button><button disabled={Boolean(skipJobId)} onClick={() => { void startSkip(180); }}>+3时</button></span><button disabled={createBranch.isPending} onClick={() => createBranch.mutate()}>{createBranch.isPending ? "创建中…" : "创建分支"}</button><button onClick={() => pause.mutate(!store.world!.paused)}>{store.world.paused ? "▶ 继续" : "Ⅱ 暂停"}</button><button className="topbar-logout" onClick={async () => { await api.logout(); window.location.href = "/login"; }}>退出</button></div>
       </header>
 
       <section className="world-layout">
         <div className="map-stage">
-          <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />
+          {renderer === "3d"
+            ? <Town3DCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} walkableVisible={walkableHigh} />
+            : <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />}
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
           </div>
