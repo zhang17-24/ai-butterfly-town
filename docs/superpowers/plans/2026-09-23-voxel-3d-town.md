@@ -149,7 +149,7 @@ describe("sceneCoords", () => {
 
 - [ ] **Step 3: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- sceneCoords`
+Run: `pnpm --filter @ai-town/web exec vitest run sceneCoords`
 Expected: FAIL — `Cannot find module './sceneCoords'`
 
 - [ ] **Step 4: 写实现**
@@ -182,7 +182,7 @@ export function yawFromSegment(from: Position, to: Position): number {
 
 - [ ] **Step 5: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- sceneCoords`
+Run: `pnpm --filter @ai-town/web exec vitest run sceneCoords`
 Expected: PASS — 6 passed
 
 - [ ] **Step 6: 提交**
@@ -262,7 +262,7 @@ describe("planGroundQuads", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- groundPlan`
+Run: `pnpm --filter @ai-town/web exec vitest run groundPlan`
 Expected: FAIL — `Cannot find module './groundPlan'`
 
 - [ ] **Step 3: 写实现**
@@ -330,7 +330,7 @@ export function planGroundQuads(blueprint: WorldBlueprint): GroundQuad[] {
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- groundPlan`
+Run: `pnpm --filter @ai-town/web exec vitest run groundPlan`
 Expected: PASS — 5 passed
 
 - [ ] **Step 5: 提交**
@@ -779,7 +779,7 @@ describe("cullInteriorVoxels", () => {
 
 - [ ] **Step 3: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- voxelMath`
+Run: `pnpm --filter @ai-town/web exec vitest run voxelMath`
 Expected: FAIL — `Cannot find module './voxelMath'`
 
 - [ ] **Step 4: 写 voxelMath 实现**
@@ -816,7 +816,7 @@ export function cullInteriorVoxels(voxels: Voxel[]): Voxel[] {
 
 - [ ] **Step 5: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- voxelMath`
+Run: `pnpm --filter @ai-town/web exec vitest run voxelMath`
 Expected: PASS — 8 passed
 
 - [ ] **Step 6: 写失败的测试(buildVoxelActor)**
@@ -929,7 +929,7 @@ describe("buildVoxelActor", () => {
 
 - [ ] **Step 7: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- buildVoxelActor`
+Run: `pnpm --filter @ai-town/web exec vitest run buildVoxelActor`
 Expected: FAIL — `Cannot find module './buildVoxelActor'`
 
 - [ ] **Step 8: 写 buildVoxelActor 实现**
@@ -1041,7 +1041,7 @@ function localize(voxels: Voxel[], pivot: [number, number, number]): Voxel[] {
 
 - [ ] **Step 9: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- buildVoxelActor`
+Run: `pnpm --filter @ai-town/web exec vitest run buildVoxelActor`
 Expected: PASS — 9 passed
 
 > 如果「四肢体素是相对各自铰点的偏移」这条失败，检查两处：手臂铰点 y = `shoulderY`（= 躯干顶端那一层 `torsoTop`），腿铰点 y = `legTop`（= 腿顶端那一层）。两条肢体的体素最高处都必须落在铰点上，`localize` 之后最大相对 y 才会是 0。
@@ -1417,7 +1417,7 @@ describe("segmentDurationMs", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- pathPlayback`
+Run: `pnpm --filter @ai-town/web exec vitest run pathPlayback`
 Expected: FAIL — `Cannot find module './pathPlayback'`
 
 - [ ] **Step 3: 写实现**
@@ -1452,7 +1452,7 @@ export function segmentDurationMs(from: Position, to: Position, floorMs: number,
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- pathPlayback`
+Run: `pnpm --filter @ai-town/web exec vitest run pathPlayback`
 Expected: PASS — 6 passed
 
 - [ ] **Step 5: 写回放 hook**
@@ -1715,7 +1715,7 @@ describe("clipBubbleText", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- bubbleText`
+Run: `pnpm --filter @ai-town/web exec vitest run bubbleText`
 Expected: FAIL — `Cannot find module './bubbleText'`
 
 - [ ] **Step 3: 写实现**
@@ -1734,7 +1734,7 @@ export function clipBubbleText(text: string): string {
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- bubbleText`
+Run: `pnpm --filter @ai-town/web exec vitest run bubbleText`
 Expected: PASS — 4 passed
 
 - [ ] **Step 5: 写标签组件**
@@ -1929,7 +1929,7 @@ describe("sunFromGameMinute", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- sunFromGameMinute`
+Run: `pnpm --filter @ai-town/web exec vitest run sunFromGameMinute`
 Expected: FAIL — `Cannot find module './sunFromGameMinute'`
 
 - [ ] **Step 3: 写实现**
@@ -1992,7 +1992,7 @@ export function sunFromGameMinute(gameMinute: number, dayLength = DAY_LENGTH_MIN
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- sunFromGameMinute`
+Run: `pnpm --filter @ai-town/web exec vitest run sunFromGameMinute`
 Expected: PASS — 8 passed
 
 - [ ] **Step 5: 提交**
@@ -2173,7 +2173,7 @@ describe("planBuildingMasses", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- buildingPlan`
+Run: `pnpm --filter @ai-town/web exec vitest run buildingPlan`
 Expected: FAIL — `Cannot find module './buildingPlan'`
 
 - [ ] **Step 3: 写实现**
@@ -2232,7 +2232,7 @@ export function planBuildingMasses(blueprint: WorldBlueprint): BuildingMass[] {
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- buildingPlan`
+Run: `pnpm --filter @ai-town/web exec vitest run buildingPlan`
 Expected: PASS — 5 passed
 
 - [ ] **Step 5: 写建筑组件**
@@ -2413,7 +2413,7 @@ describe("planWalkableCells", () => {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `pnpm --filter @ai-town/web test -- walkablePlan`
+Run: `pnpm --filter @ai-town/web exec vitest run walkablePlan`
 Expected: FAIL — `Cannot find module './walkablePlan'`
 
 - [ ] **Step 3: 写实现**
@@ -2447,7 +2447,7 @@ export function planWalkableCells(blueprint: WorldBlueprint): WalkableCell[] {
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `pnpm --filter @ai-town/web test -- walkablePlan`
+Run: `pnpm --filter @ai-town/web exec vitest run walkablePlan`
 Expected: PASS — 4 passed
 
 - [ ] **Step 5: 写叠加层组件**
