@@ -79,25 +79,37 @@
 ```
 apps/web/src/game3d/
   Town3DCanvas.tsx          入口：props + zustand 订阅 + gameEvents 桥接
+  rendererPreference.ts     渲染器选择 + localStorage 持久化
   scene/
     TownScene3D.tsx         场景装配、相机、渲染器参数
     GroundMesh.tsx          地面 / 河流水面 / 道路
+    groundPlan.ts           ★ blueprint → quad 列表
     Buildings.tsx           blueprint.bounds → 体素建筑
+    buildingPlan.ts         ★ blueprint → 建筑体块
     WalkableGrid.tsx        可走范围叠加层
+    walkablePlan.ts         ★ blueprint → 可走格中心
     Sun.tsx                 gameMinute → 方向光 / 环境光 / 阴影
+    sunFromGameMinute.ts    ★ 纯函数
   actors/
     VoxelActor.tsx          体素演员渲染（InstancedMesh）
+    Actors.tsx              订阅 store，渲染玩家 + 全部居民
     useActorPath.ts         路径回放 / 转向 / 走路相位
+    pathPlayback.ts         ★ 路径续接与时长
   voxel/
-    buildVoxelCharacter.ts  ★ 纯函数
-    voxelSpecs.ts           per-NPC 体型 / 配件 / 调色板
-    sunFromGameMinute.ts    ★ 纯函数
+    voxelTypes.ts           Voxel / VoxelPart / VoxelActorSpec 类型
+    voxelMath.ts            ★ darkenHex / cullInteriorVoxels
+    buildVoxelActor.ts      ★ 参数化体素人体
+    actorSpecs.ts           6 份角色规格（5 NPC + player）
     sceneCoords.ts          ★ world(x,y) ↔ scene(x,z)
   ui/
     ActorLabels.tsx         名牌 + 对话气泡（DOM 投影）
+    Minimap.tsx             2D 像素小地图
+    bubbleText.ts           ★ 气泡文案截断
 ```
 
-★ 为可单测纯函数。**不把 3D 逻辑写成只能靠肉眼看的形式** —— `pnpm verify` 必须保持有效，见 §10。
+★ 为可单测纯函数（实现文件名为 `<模块>.ts`，测试文件为 `<模块>.test.ts`）。**不把 3D 逻辑写成只能靠肉眼看的形式** —— `pnpm verify` 必须保持有效，见 §10。
+
+> 实现时把 `buildVoxelCharacter` 命名为 `buildVoxelActor`（它产出的是一整个演员而不只是角色外形），并把各"纯计算"从组件里拆成独立模块：`groundPlan` / `buildingPlan` / `walkablePlan` / `voxelMath` / `pathPlayback` / `bubbleText`。
 
 ---
 
@@ -205,10 +217,10 @@ interface VoxelActorSpec {
 
 | 期 | 内容 | 结束时可演示 |
 |---|---|---|
-| **P0 骨架** | 依赖、`Town3DCanvas`、store/事件桥接、程序化地面、斜视 `OrbitControls`、raycast 点地移动 | 3D 可玩，只差角色 |
+| **P0 骨架** | 依赖、`Town3DCanvas`、store/事件桥接、程序化地面、斜视 `OrbitControls`、raycast 点地移动、顶栏 2D/3D 切换（**默认 2D**） | 3D 可玩，只差角色 |
 | **P1 体素角色** | `buildVoxelCharacter` + 6 份 spec + 程序化走路/转向 + 名牌气泡 | **视觉主体成立，可对外演示** |
 | **P2 建筑与光照** | 体素建筑（含开门窗）+ `gameMinute` 太阳阴影 + 河流 + 行走区域叠加 | 世界完整 |
-| **P3 打磨与切换** | 2D 小地图、顶栏 2D/3D 切换（localStorage 记忆）、分包懒加载、单测补齐、性能 | 交付态 |
+| **P3 打磨与切换** | 2D 小地图、**切换默认值翻转为 3D** + localStorage 记忆、分包懒加载、单测补齐、性能 | 交付态 |
 
 **总验收**：
 
@@ -225,12 +237,18 @@ interface VoxelActorSpec {
 
 | 函数 | 断言 |
 |---|---|
-| `buildVoxelCharacter` | 体素数 > 0；无内部体素（每个体素至少一面暴露）；颜色全部来自 spec；配件开关生效 |
+| `buildVoxelActor` | 体素数 > 0；无内部体素（每个体素至少一面暴露）；颜色全部来自 spec；配件开关生效 |
+| `voxelMath` | `darkenHex` 通道压暗与边界；`cullInteriorVoxels` 3×3×3 → 26、2×2×2 → 8 |
 | `sunFromGameMinute` | 正午高度角最大；午夜为负（夜间分支）；黄昏色温偏暖、夜间偏蓝 |
+| `groundPlan` / `buildingPlan` / `walkablePlan` | 由 qixiBlueprint 推出的 quad / 体块 / 可走格数量与坐标；水面与建筑被正确排除 |
+| `pathPlayback` | `resumePath` 的近/远/空三种分支；`segmentDurationMs` 的下限/上限/线性 |
+| `bubbleText` | 72 字上限、恰好等长不截断、超长带省略号 |
 | `sceneCoords` | world↔scene 往返一致；边界值 |
 | `yawFromSegment` | 四个正方向 + 斜向 |
 
-`VoxelActor` 与 `Town3DCanvas` 属于渲染胶水，靠浏览器实测覆盖，不强行单测。
+`VoxelActor` / `Actors` / `Town3DCanvas` / `Sun` / `Buildings` / `WalkableGrid` 属于渲染胶水，靠浏览器实测覆盖，不强行单测。
+
+**逐帧动画的实现约束**：R3F 里逐帧变化的值**必须直接写到场景对象上**（`useFrame` 内改 `group.position` / `group.rotation`，或经 ref 传递），不能当作 JSX prop 传入 —— JSX prop 只在组件重渲染时生效，而逐帧动画不触发重渲染。位置的"只对齐一次"初始化与逐帧接管必须分开，否则每次 store 更新都会把插值位置拽回服务端值造成抖动。
 
 **性能预算**：目标 60fps @ 1080p 集显。体素规模估算 —— 角色 6 × ~1200 + 建筑 ~8 × ~3000 ≈ 31k 体素，实例化后总 draw call 控制在 30 以内。超预算时的降级顺序：关阴影 → 降 DPR 上限 → 体素 2×2 降采样。
 
@@ -252,5 +270,9 @@ interface VoxelActorSpec {
 ## 12. 待决问题
 
 1. **相机参数与角色比例**：`OrbitControls` 的俯仰夹取范围、缩放区间、平移边界，以及体素尺寸最终取多少 —— 需要 P0/P1 在浏览器里看着调，先给可运行的初始值。
-2. **顶栏切换的默认值**：P1 完成后默认 3D，还是先默认 2D 待 P3 再切？建议前者（3D 是本次卖点），但需要用户确认。
-3. **`npcSprites` prop 的长期去留**：本期保留以免动 `WorldPage`。若 2D 回退最终退役，可连同 Phaser 一起清理。
+2. **`npcSprites` prop 的长期去留**：本期保留以免动 `WorldPage`。若 2D 回退最终退役，可连同 Phaser 一起清理。
+
+### 已决定
+
+- **切换默认值**：P0–P2 默认 2D（不改变现有演示行为），P3 翻转默认值为 3D 并加 localStorage 记忆。用户已于 2026-09-23 确认。
+- **切换开关进入 P0**：没有开关就无法在浏览器里验证 P0–P2，因此开关随 P0 一起落地，P3 只做默认值翻转与记忆。
