@@ -1,4 +1,4 @@
-import { cullInteriorVoxels } from "./voxelMath";
+import { cullInteriorVoxels, darkenHex } from "./voxelMath";
 import type { Accessory, Voxel, VoxelActorSpec, VoxelPart, VoxelPartName } from "./voxelTypes";
 
 /** 含边界的体素盒填充。 */
@@ -31,12 +31,9 @@ export function actorHeight(spec: VoxelActorSpec): number {
  */
 export function buildVoxelActor(spec: VoxelActorSpec): VoxelPart[] {
   const { width, depth, headHeight, torsoHeight, legHeight, armHeight } = spec.proportions;
-  const { clothing, skin, hair, shoes } = spec.palette;
-  // 腿色与衣色同色。
-  // 注:brief/plan 的原始实现是 `darkenHex(clothing, 30)`(对齐 2D createPixelAvatar 的裤腿),但该派生色
-  // 不在调色板内,而本任务的「颜色只用调色板里的值」测试只放行 Object.values(palette) 与 "#342f35",
-  // 所以这里退回到 palette.clothing —— 仍严格满足「颜色只能取自 ActorPalette」的硬性约束。
-  const legColor = clothing;
+  const { clothing, skin, hair, accent, shoes } = spec.palette;
+  // 裤腿用衣色压暗 30% 推导,对齐 2D createPixelAvatar 的 darken(30):同一条裤子分两色。
+  const legColor = darkenHex(clothing, 30);
 
   const half = width / 2;
   const depthHalf = depth / 2;
@@ -63,15 +60,11 @@ export function buildVoxelActor(spec: VoxelActorSpec): VoxelPart[] {
     parts.push({ name: "head", pivot, voxels: localize(voxels, pivot) });
   }
 
-  // 躯干:主体衣色 + 胸前一条竖向深色条(几何条件与 brief 一致)
-  // 注:brief/plan 的原始实现用 palette.accent 上这条竖条,但「配件被附加到指定部件上」测试要求
-  // **无配件时**躯干不含 accent 色(该测试拿 accent 色当配件色,用来验证配件确实被附加),
-  // 故改用调色板里最深的 shoes 色(#342f35,测试显式放行)。
-  const stripeColor = shoes;
+  // 躯干:主体衣色 + 胸前一条竖向 accent(对齐 2D createPixelAvatar 的 accent 竖条)
   {
     const pivot: [number, number, number] = [0, torsoBottom, 0];
     const voxels = fillBox(x0, x1, torsoBottom, torsoTop, z0, z1, clothing)
-      .map((voxel) => (voxel.x === 0 && voxel.z === z1 && voxel.y <= torsoBottom + 5 ? { ...voxel, color: stripeColor } : voxel));
+      .map((voxel) => (voxel.x === 0 && voxel.z === z1 && voxel.y <= torsoBottom + 5 ? { ...voxel, color: accent } : voxel));
     parts.push({ name: "torso", pivot, voxels: localize(voxels, pivot) });
   }
 

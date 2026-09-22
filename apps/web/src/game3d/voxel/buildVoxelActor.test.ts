@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actorHeight, buildVoxelActor } from "./buildVoxelActor";
+import { darkenHex } from "./voxelMath";
 import type { VoxelActorSpec } from "./voxelTypes";
 
 const spec: VoxelActorSpec = {
@@ -75,24 +76,29 @@ describe("buildVoxelActor", () => {
     }
   });
 
-  it("颜色只用调色板里的值", () => {
-    const allowed = new Set(Object.values(spec.palette));
+  it("颜色只用调色板里的值,或由调色板色压暗推导出的次级色", () => {
+    const allowed = new Set<string>(Object.values(spec.palette));
+    // 裤腿用 darkenHex(clothing, 30) 推导(与 2D createPixelAvatar 的 darken(30) 同语义),
+    // 所以合法性判断必须包含"调色板色的 30% 压暗结果",否则会误判这条设计为违规。
+    const derived = new Set<string>(Object.values(spec.palette).map((color) => darkenHex(color, 30)));
     for (const part of buildVoxelActor(spec)) {
       for (const voxel of part.voxels) {
-        expect(allowed.has(voxel.color) || voxel.color === "#342f35").toBe(true);
+        expect(allowed.has(voxel.color) || derived.has(voxel.color)).toBe(true);
       }
     }
   });
 
   it("配件被附加到指定部件上", () => {
+    // 用一个躯干本身绝对不会出现的颜色,否则"加配件前没有该色"这条断言会被躯干原有的胸襟条纹撞掉
+    const accessoryColor = "#ff00ff";
     const withAccessory = buildVoxelActor({
       ...spec,
-      accessories: [{ part: "torso", at: [0, 2, -4], size: [6, 4, 1], color: "#f6d36a" }],
+      accessories: [{ part: "torso", at: [0, 2, -4], size: [6, 4, 1], color: accessoryColor }],
     });
     const torso = withAccessory.find((part) => part.name === "torso")!;
-    expect(torso.voxels.some((voxel) => voxel.color === "#f6d36a")).toBe(true);
+    expect(torso.voxels.some((voxel) => voxel.color === accessoryColor)).toBe(true);
     const plain = buildVoxelActor(spec).find((part) => part.name === "torso")!;
-    expect(plain.voxels.some((voxel) => voxel.color === "#f6d36a")).toBe(false);
+    expect(plain.voxels.some((voxel) => voxel.color === accessoryColor)).toBe(false);
   });
 
   it("身高等于腿 + 躯干 + 头", () => {
