@@ -14,7 +14,7 @@ export interface Town3DCanvasProps {
   walkableVisible: boolean;
 }
 
-export function Town3DCanvas({ blueprint, walkableVisible }: Town3DCanvasProps) {
+export function Town3DCanvas({ blueprint }: Town3DCanvasProps) {
   const active = blueprint ?? qixiBlueprint;
   const [cx, , cz] = worldCenter(active.canvas);
 
