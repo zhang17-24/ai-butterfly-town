@@ -8,7 +8,8 @@ import { worldCenter } from "../voxel/sceneCoords";
 const MIN_POLAR = Math.PI * 0.12;
 const MAX_POLAR = Math.PI * 0.42;
 const MIN_DISTANCE = 140;
-const MAX_DISTANCE = 640;
+/** 不可低于约 1300:900×620 的地图在这个 fov/aspect 下最短需要 ~748 的距离才装得下 620 的进深(带 ~1.75× 余量即 ~1310),再小就永远拉不出全貌。 */
+const MAX_DISTANCE = 1700;
 
 export function TownScene3D({ blueprint, children, onGroundClick }: {
   blueprint: WorldBlueprint;

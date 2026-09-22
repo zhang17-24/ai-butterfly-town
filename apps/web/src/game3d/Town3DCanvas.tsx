@@ -27,7 +27,7 @@ export function Town3DCanvas({ blueprint }: Town3DCanvasProps) {
       className="town-canvas-3d"
       dpr={[1, 1.75]}
       shadows
-      camera={{ fov: 45, position: [cx, 420, cz + 360], near: 1, far: 3000 }}
+      camera={{ fov: 45, position: [cx, 680, cz + 800], near: 1, far: 3000 }}
     >
       <color attach="background" args={["#1d3b3f"]} />
       <TownScene3D blueprint={active} onGroundClick={handleGroundClick}>
