@@ -5,12 +5,20 @@ import { GROUND_PALETTE, planGroundQuads, type GroundQuad } from "./groundPlan";
 import { sceneToWorld, worldCenter } from "../voxel/sceneCoords";
 
 /**
- * 各层中心高度。**关键约束**:草地基座是一块不透明实体,顶面在 y=0,且覆盖整张地图 ——
- * 所以任何整体位于 y<=0 以下的层都会被基座完全挡住(水面曾因此整条河看不见)。
- * 水面中心取 0:顶面 +0.6 露出基座之上,同时仍低于路面顶面 +0.8,桥面才像跨在河上。
+ * 各层中心高度与厚度。两个**必须同时成立**的约束:
+ *
+ * 1. 草地基座是不透明实体,顶面在 y = 0,且覆盖整张地图 —— 任何整体位于 y <= 0 以下的层
+ *    都会被基座完全挡住(水面曾因此整条河看不见)。所以水必须露在 y = 0 之上。
+ * 2. 角色站在 y = 0 的地平面上(体素原点在脚底)。层越厚,角色走在路面上陷得越深 ——
+ *    层顶超过约 0.3 就会吃掉脚部那一格体素。所以层要做薄:所有层顶面 <= 0.31。
+ *
+ * 取 QUAD_THICKNESS = 0.25、水面中心 0.05、路面中心 0.18,于是:
+ *   水面 y ∈ [-0.075, +0.175](露出基座之上)
+ *   路面/广场 y ∈ [+0.055, +0.305](顶面高过水面,桥面才像跨在河上)
+ * 面平面互不重合({-6, -0.075, 0.055, 0.175, 0.305}),不会 z-fighting。
  */
-const LAYER_Y: Record<GroundQuad["layer"], number> = { water: 0, plaza: 0.2, road: 0.2 };
-const QUAD_THICKNESS = 1.2;
+const LAYER_Y: Record<GroundQuad["layer"], number> = { water: 0.05, plaza: 0.18, road: 0.18 };
+const QUAD_THICKNESS = 0.25;
 const BASE_THICKNESS = 6;
 
 export function GroundMesh({ blueprint, onGroundClick }: {
