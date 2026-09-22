@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { OrbitControls } from "@react-three/drei";
 import type { WorldBlueprint } from "@ai-town/shared";
 import { GroundMesh } from "./GroundMesh";
+import { Sun } from "./Sun";
 import { worldCenter } from "../voxel/sceneCoords";
 
 /** 俯仰夹取:0 = 正上方俯视,π/2 = 贴地平线。上下都留余量,既能看全小镇又不穿到地面以下。 */
@@ -20,8 +21,7 @@ export function TownScene3D({ blueprint, children, onGroundClick }: {
 
   return (
     <>
-      <ambientLight intensity={0.75} color="#cfe3d4" />
-      <directionalLight position={[cx - 260, 420, cz - 200]} intensity={1.4} color="#fff5e0" />
+      <Sun canvas={blueprint.canvas} />
       <OrbitControls
         makeDefault
         target={[cx, 0, cz]}
