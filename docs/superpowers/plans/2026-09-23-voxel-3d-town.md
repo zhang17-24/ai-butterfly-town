@@ -350,7 +350,7 @@ git commit -m "feat(web): plan voxel ground, water and road quads from blueprint
 - Create: `apps/web/src/game3d/scene/GroundMesh.tsx`
 - Create: `apps/web/src/game3d/Town3DCanvas.tsx`
 - Modify: `apps/web/src/pages/WorldPage.tsx:45` (state)、`:269` (顶栏按钮)、`:274` (条件渲染)
-- Modify: `apps/web/src/styles.css`（`.renderer-toggle` 复用 `.walkable-toggle` 样式，无需新样式）
+- Modify: `apps/web/src/styles.css`（新增 `.town-canvas-3d` 容器样式；顶栏按钮直接复用已有的 `.walkable-toggle`，不需要新类）
 
 **Interfaces:**
 - Consumes: Task 1 的 `worldCenter` / `sceneToWorld`；Task 2 的 `planGroundQuads` / `GROUND_PALETTE`
@@ -544,6 +544,17 @@ export function Town3DCanvas({ blueprint, walkableVisible }: Town3DCanvasProps) 
 > `walkableVisible`、`worldId`、`mapImageUrl`、`npcSprites` 在 Task 3 尚未使用。为通过 eslint 的未使用变量检查，**解构时只取当前用到的 `blueprint` 与 `walkableVisible`**，其余留在 props 类型里不取。上面代码已按此写法。
 >
 > `Canvas` 的 `camera` 只在首次挂载生效；换世界时靠 `<OrbitControls target>` 跟到新的地图中心（Target 变化会驱动 controls 更新）。因此这里不需要 `cameraTarget` state。
+
+- [ ] **Step 3.5: 加画布容器样式**
+
+`apps/web/src/styles.css`：在已有的 `.town-canvas` 规则（第 98 行）**旁边**追加 3D 画布容器样式。
+
+**必须有这一步**：`Town3DCanvas` 的 `<Canvas className="town-canvas-3d">` 需要一个有确定尺寸的父容器，否则 R3F 的画布会塌成 0 高度，3D 视图一片空白。盒子尺寸与 2D 保持一致（同样的 `min(100%, 900px)` + `45/31`），这样切换渲染器时布局不跳动。
+
+```css
+.town-canvas-3d { width: min(100%, 900px); aspect-ratio: 45 / 31; overflow: hidden; border-radius: 14px; background: #1d3b3f; box-shadow: inset 0 0 0 1px rgba(31,65,45,.15); }
+.town-canvas-3d canvas { display: block; width: 100% !important; height: 100% !important; }
+```
 
 - [ ] **Step 5: 接到 WorldPage**
 
@@ -1654,9 +1665,10 @@ git commit -m "feat(web): replay server paths with procedural walk cycle and con
 - Create: `apps/web/src/game3d/ui/bubbleText.ts`
 - Test: `apps/web/src/game3d/ui/bubbleText.test.ts`
 - Create: `apps/web/src/game3d/ui/ActorLabels.tsx`
-- Modify: `apps/web/src/game3d/actors/Actors.tsx`（在 `ActorNode` 内挂标签）
-- Modify: `apps/web/src/game3d/Town3DCanvas.tsx`（订阅 `npc:speak` 事件）
+- Modify: `apps/web/src/game3d/actors/Actors.tsx`（挂标签、订阅 `npc:speak` 事件、维护气泡状态）
 - Modify: `apps/web/src/styles.css`（加 `.actor-label` / `.actor-bubble`）
+
+> `npc:speak` 的订阅放在 `Actors.tsx` 里，**不改 `Town3DCanvas.tsx`** —— 气泡状态天然属于演员层，放在入口组件会为了把数据传下来而多绕一层 prop。
 
 **Interfaces:**
 - Consumes: Task 4 的 `actorHeight`；Task 5 的 `actorSpecFor`；`SPEECH_PLAYER_ACTOR`、`SpeechLine` from `../../game/speech-events`
