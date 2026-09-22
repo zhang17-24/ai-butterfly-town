@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Suspense, lazy, useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { RealtimeMessageSchema, type DialogueSession, type EventPreviewResult, type EventPreviewSpec, type Job, type MemoryEntry, type RealtimeMessage, type TownEvent, type WorldBlueprint } from "@ai-town/shared";
@@ -6,10 +6,13 @@ import { api, clientId, mapImageUrl as mapImageHref } from "../services/api";
 import { gameEvents } from "../game/event-bus";
 import { toSpeechLines } from "../game/speech-events";
 import { useWorldStore } from "../state/world-store";
-import { TownCanvas } from "../game/TownCanvas";
-import { Town3DCanvas } from "../game3d/Town3DCanvas";
 import { Minimap } from "../game3d/ui/Minimap";
 import { readRendererPreference, writeRendererPreference, type RendererKind } from "../game3d/rendererPreference";
+
+// 两个渲染器各带一个大包(Phaser ~1MB / three ~600KB),路由级懒加载让它们不会同时进首屏 ——
+// 只加载当前选中的那个。
+const TownCanvas = lazy(() => import("../game/TownCanvas").then((module) => ({ default: module.TownCanvas })));
+const Town3DCanvas = lazy(() => import("../game3d/Town3DCanvas").then((module) => ({ default: module.Town3DCanvas })));
 
 function formatTime(minutes: number) {
   const hour = Math.floor(minutes / 60) % 24;
@@ -278,12 +281,14 @@ export function WorldPage() {
 
       <section className="world-layout">
         <div className="map-stage">
-          {renderer === "3d"
-            ? <>
-              <Town3DCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} walkableVisible={walkableHigh} />
-              <Minimap imageUrl={mapImageUrl ?? undefined} blueprint={blueprint ?? undefined} />
-            </>
-            : <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />}
+          <Suspense fallback={<div className="town-canvas" aria-busy="true" />}>
+            {renderer === "3d"
+              ? <>
+                <Town3DCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} walkableVisible={walkableHigh} />
+                <Minimap imageUrl={mapImageUrl ?? undefined} blueprint={blueprint ?? undefined} />
+              </>
+              : <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />}
+          </Suspense>
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}
           </div>
