@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { qixiBlueprint } from "@ai-town/shared/qixi-blueprint";
-import { GROUND_PALETTE, planGroundQuads } from "./groundPlan";
+import { qixiBlueprint, qixiPixelStyle } from "@ai-town/shared/qixi-blueprint";
+import { planGroundQuads } from "./groundPlan";
 
-// GROUND_PALETTE 是 `as const`,Object.values 会推出字面量联合类型的 Set;而 GroundQuad.color 是 string,
-// 这里显式放宽成 Set<string> 才能比较。断言语义不变(仍然是「颜色必须属于调色板」)。
-const palette = new Set<string>(Object.values(GROUND_PALETTE));
+/** 断言的是"地面颜色取自锁定调色板"这条 spec 约束,所以集合来自 qixiPixelStyle 而不是 GROUND_PALETTE 自身 —— 用自己的值建集合等于什么都没断言。 */
+const lockedPalette = new Set<string>(qixiPixelStyle.palette);
 
 describe("planGroundQuads", () => {
   it("把 water 地点铺成一层水面 quad", () => {
@@ -40,7 +39,7 @@ describe("planGroundQuads", () => {
 
   it("所有颜色都取自锁定调色板", () => {
     for (const quad of planGroundQuads(qixiBlueprint)) {
-      expect(palette.has(quad.color)).toBe(true);
+      expect(lockedPalette.has(quad.color)).toBe(true);
     }
   });
 });
