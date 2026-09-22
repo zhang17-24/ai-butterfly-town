@@ -61,3 +61,22 @@
 - **反复切换渲染器后出现过 `THREE.WebGLRenderer: Context Lost`**:在一次会话里多次 2D↔3D 切换 + 大量缩放/环绕后出现,单次切换不可复现。建议后续确认卸载时 three 的上下文是否被释放。
 - **亚 tick 插值未隔离验证**(见 Task 7 行)。
 - **创建分支按钮未在 3D 下复验**。
+
+## 五、审查提出但本次未修的发现
+
+逐条记录,附判断依据(供后续决定是否处理):
+
+| 发现 | 判断 |
+|---|---|
+| `.town-canvas-3d` 用 `!important` 压 R3F 的行内 `width/height: 100%` | 可用。审查建议改在 `<Canvas style={{…}}>` 上传(据 R3F 实现,`...style` 在其默认值之后展开,无需 `!important`),更干净;非阻塞 |
+| `.town-canvas-3d canvas {…!important}` 是多余的(该 canvas 没有行内尺寸) | 冗余样式,无功能影响 |
+| `groundPlan.test.ts` 用魔数 `width === 54` 定位桥面 | 当前 54 在四条路径里唯一,但 blueprint 改动复用该宽度时会静默断言到别的路段 |
+| `GroundMesh.tsx` 注释枚举了 6 个面相异平面中的 5 个(漏了基座顶面 y=0) | 纯注释,结论仍成立 |
+| `sceneToWorld` 对负半值的取整(`Math.round(-0.5) === -0`)未被测试钉住 | 对 JSON 安全(`JSON.stringify(-0) === "0"`),整数契约未被测试覆盖 |
+| `worldCenter` 不做取整 | 作为相机 target 无害;将来做平移夹取时不能把它当整数世界坐标用 |
+| 切换开关显示的是**当前**渲染器而非目标动作(在 2D 时显示「2D 视图」) | 计划原文如此,读起来像状态标签而非按钮 |
+| 反复切换渲染器后出现过 WebGL 上下文丢失 | 单次切换不可复现;建议确认卸载时 three 是否释放了上下文 |
+| `VoxelPartMesh` 依赖 `ActorBody` 对 `buildVoxelActor(spec)` 的 memo | 当前 spec 来自模块常量,只是潜在风险 |
+| `game3d/ui/bubbleText.ts` 与 `TownScene.ts` 的 `clipBubbleText` 重复 | 刻意为之(守住"不改 2D 渲染器"),等回退退役时去重 |
+
+已修:`sceneCoords.test.ts` 那条测试原名声称"回退成 +z 方向",但实现里并无回退分支 —— 改为按真实机制命名,并用 `toBeCloseTo` 避开 `-0` 的 `Object.is` 陷阱。

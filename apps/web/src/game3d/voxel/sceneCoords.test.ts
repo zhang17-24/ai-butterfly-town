@@ -29,7 +29,9 @@ describe("sceneCoords", () => {
     expect(yawFromSegment(origin, { x: -1, y: 0 })).toBeCloseTo(-Math.PI / 2);
   });
 
-  it("重合点回退成 +z 方向而不是 NaN", () => {
-    expect(yawFromSegment({ x: 5, y: 5 }, { x: 5, y: 5 })).toBe(0);
+  // 这里没有"回退分支":atan2(+0,+0) 本身就是 +0。用 toBeCloseTo 而不是 toBe,
+  // 是因为 toBe 走 Object.is,若两个增量都是 -0 会判 -0 !== 0(而渲染并不受影响)。
+  it("重合点给出 0 弧度而不是 NaN", () => {
+    expect(yawFromSegment({ x: 5, y: 5 }, { x: 5, y: 5 })).toBeCloseTo(0);
   });
 });
