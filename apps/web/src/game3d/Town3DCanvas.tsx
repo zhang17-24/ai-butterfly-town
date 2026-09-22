@@ -15,7 +15,7 @@ export interface Town3DCanvasProps {
   walkableVisible: boolean;
 }
 
-export function Town3DCanvas({ blueprint }: Town3DCanvasProps) {
+export function Town3DCanvas({ blueprint, walkableVisible }: Town3DCanvasProps) {
   const active = blueprint ?? qixiBlueprint;
   const [cx, , cz] = worldCenter(active.canvas);
 
@@ -31,7 +31,7 @@ export function Town3DCanvas({ blueprint }: Town3DCanvasProps) {
       camera={{ fov: 45, position: [cx, 680, cz + 800], near: 1, far: 3000 }}
     >
       <color attach="background" args={["#1d3b3f"]} />
-      <TownScene3D blueprint={active} onGroundClick={handleGroundClick}>
+      <TownScene3D blueprint={active} onGroundClick={handleGroundClick} walkableVisible={walkableVisible}>
         <Actors />
       </TownScene3D>
     </Canvas>

@@ -2496,9 +2496,13 @@ describe("planWalkableCells", () => {
     expect(cells).toHaveLength(expected);
   });
 
-  it("格中心落在网格中心上", () => {
+  it("每个格中心都落在网格交点上", () => {
+    // 不能断言 cells[0] 是原点那格:地图左上角被咖啡馆占着,第一格可走格在 x=270
     const grid = createNavigationGrid(qixiBlueprint);
-    expect(cells[0]).toEqual({ x: grid.tileSize / 2, z: grid.tileSize / 2 });
+    for (const cell of cells) {
+      expect((cell.x - grid.tileSize / 2) % grid.tileSize).toBe(0);
+      expect((cell.z - grid.tileSize / 2) % grid.tileSize).toBe(0);
+    }
   });
 
   it("建筑包围盒内没有任何可走格", () => {
@@ -2584,20 +2588,17 @@ export function WalkableGrid({ blueprint, visible }: { blueprint: WorldBlueprint
   }, [cells]);
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[undefined, undefined, cells.length]}
-      visible={visible}
-      rotation-x={-Math.PI / 2}
-    >
-      <planeGeometry args={[MARKER_SIZE, MARKER_SIZE]} />
-      <meshBasicMaterial color="#00d4ff" transparent opacity={0.45} side={THREE.DoubleSide} depthWrite={false} />
+    <instancedMesh ref={meshRef} args={[undefined, undefined, cells.length]} visible={visible}>
+      <boxGeometry args={[MARKER_SIZE, MARKER_THICKNESS, MARKER_SIZE]} />
+      <meshBasicMaterial color="#00d4ff" transparent opacity={0.45} depthWrite={false} />
     </instancedMesh>
   );
 }
 ```
 
-> `rotation-x={-Math.PI / 2}` 让平面躺平。漏掉它方格会竖立成一片墙。
+> **别用 `planeGeometry` + `rotation-x={-Math.PI/2}` 来躺平**:`instancedMesh` 上的旋转会连同每个实例的**平移**一起旋转,格子的 z 会被转成高度,整片叠加层变成一面立在远处的墙(实测如此)。薄长方体不需要任何旋转,和地面 quad 是同一个做法。
+>
+> 常量:`CELL_Y = 1.4`(高过路面顶面 +0.305)、`MARKER_SIZE = 16`、`MARKER_THICKNESS = 0.4`。`THREE` 仍然要用(`Matrix4`),所以保留 `import * as THREE from "three"`。
 
 - [ ] **Step 6: 水面动效**
 

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
-import type { ThreeEvent } from "@react-three/fiber";
+import { useMemo, useRef } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import * as THREE from "three";
 import type { WorldBlueprint } from "@ai-town/shared";
 import { GROUND_PALETTE, planGroundQuads, type GroundQuad } from "./groundPlan";
 import { sceneToWorld, worldCenter } from "../voxel/sceneCoords";
@@ -29,6 +30,16 @@ export function GroundMesh({ blueprint, onGroundClick }: {
   const [cx, , cz] = worldCenter(blueprint.canvas);
   const { width, height } = blueprint.canvas;
 
+  // 水面呼吸:两个锁定色之间插值即可表达流动感,不引入贴图或 shader
+  const waterRef = useRef<THREE.MeshStandardMaterial>(null);
+  const shallow = useMemo(() => new THREE.Color(GROUND_PALETTE.waterShallow), []);
+  const deep = useMemo(() => new THREE.Color(GROUND_PALETTE.water), []);
+  useFrame((state) => {
+    if (!waterRef.current) return;
+    const wave = (Math.sin(state.clock.elapsedTime * 0.6) + 1) / 2;
+    waterRef.current.color.copy(deep).lerp(shallow, wave * 0.45);
+  });
+
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
     onGroundClick(sceneToWorld(event.point.x, event.point.z));
@@ -49,7 +60,9 @@ export function GroundMesh({ blueprint, onGroundClick }: {
           onClick={handleClick}
         >
           <boxGeometry args={[quad.width, QUAD_THICKNESS, quad.length]} />
-          <meshLambertMaterial color={quad.color} />
+          {quad.layer === "water"
+            ? <meshStandardMaterial ref={waterRef} roughness={0.35} color={quad.color} />
+            : <meshLambertMaterial color={quad.color} />}
         </mesh>
       ))}
     </group>

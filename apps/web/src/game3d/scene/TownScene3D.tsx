@@ -6,6 +6,7 @@ import { GroundMesh } from "./GroundMesh";
 import { Sun } from "./Sun";
 import { sunFromGameMinute } from "./sunFromGameMinute";
 import { useWorldMinute } from "./useWorldMinute";
+import { WalkableGrid } from "./WalkableGrid";
 import { worldCenter } from "../voxel/sceneCoords";
 
 /** 俯仰夹取:0 = 正上方俯视,π/2 = 贴地平线。上下都留余量,既能看全小镇又不穿到地面以下。 */
@@ -15,10 +16,11 @@ const MIN_DISTANCE = 140;
 /** 不可低于约 1300:900×620 的地图在这个 fov/aspect 下最短需要 ~748 的距离才装得下 620 的进深(带 ~1.75× 余量即 ~1310),再小就永远拉不出全貌。 */
 const MAX_DISTANCE = 1700;
 
-export function TownScene3D({ blueprint, children, onGroundClick }: {
+export function TownScene3D({ blueprint, children, onGroundClick, walkableVisible }: {
   blueprint: WorldBlueprint;
   children?: ReactNode;
   onGroundClick: (world: { x: number; y: number }) => void;
+  walkableVisible: boolean;
 }) {
   const [cx, , cz] = worldCenter(blueprint.canvas);
   // 夜里点亮窗户。在场景层推导而不是从入口组件传下来,省掉一层只为透传的 prop。
@@ -40,6 +42,7 @@ export function TownScene3D({ blueprint, children, onGroundClick }: {
       />
       <GroundMesh blueprint={blueprint} onGroundClick={onGroundClick} />
       <Buildings blueprint={blueprint} litWindows={litWindows} />
+      <WalkableGrid blueprint={blueprint} visible={walkableVisible} />
       {children}
     </>
   );

@@ -7,6 +7,8 @@ export const GROUND_PALETTE = {
   plaza: "#efe2bc",
   road: "#efe2bc",
   water: "#194f59",
+  /** 水面呼吸的另一端色(同样取自锁定调色板),由渲染层做插值。 */
+  waterShallow: "#2d8184",
 } as const;
 
 export interface GroundQuad {
