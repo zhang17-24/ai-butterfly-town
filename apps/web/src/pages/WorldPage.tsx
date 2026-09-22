@@ -8,6 +8,7 @@ import { toSpeechLines } from "../game/speech-events";
 import { useWorldStore } from "../state/world-store";
 import { TownCanvas } from "../game/TownCanvas";
 import { Town3DCanvas } from "../game3d/Town3DCanvas";
+import { Minimap } from "../game3d/ui/Minimap";
 import { readRendererPreference, writeRendererPreference, type RendererKind } from "../game3d/rendererPreference";
 
 function formatTime(minutes: number) {
@@ -278,7 +279,10 @@ export function WorldPage() {
       <section className="world-layout">
         <div className="map-stage">
           {renderer === "3d"
-            ? <Town3DCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} walkableVisible={walkableHigh} />
+            ? <>
+              <Town3DCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} walkableVisible={walkableHigh} />
+              <Minimap imageUrl={mapImageUrl ?? undefined} blueprint={blueprint ?? undefined} />
+            </>
             : <TownCanvas worldId={worldId} blueprint={blueprint ?? undefined} mapImageUrl={mapImageUrl ?? undefined} npcSprites={npcSprites} />}
           <div className={move.isError ? "map-legend error" : "map-legend"}>
             {move.isPending ? "正在规划路线…" : move.isError ? move.error.message : "点击道路移动 · 点击居民查看状态"}

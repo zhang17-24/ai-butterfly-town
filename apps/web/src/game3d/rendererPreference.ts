@@ -2,8 +2,8 @@ export type RendererKind = "2d" | "3d";
 
 const STORAGE_KEY = "ai-town.renderer";
 
-/** P0–P2 默认 2D(不改变现有演示行为);P3 会翻转为 "3d"。 */
-export const DEFAULT_RENDERER: RendererKind = "2d";
+/** 交付默认 3D(体素视图是这次的卖点);用户的选择由 localStorage 记住。 */
+export const DEFAULT_RENDERER: RendererKind = "3d";
 
 export function readRendererPreference(): RendererKind {
   try {
