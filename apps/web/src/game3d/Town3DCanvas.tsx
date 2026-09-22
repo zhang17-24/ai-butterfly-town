@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import type { WorldBlueprint } from "@ai-town/shared";
 import { qixiBlueprint } from "@ai-town/shared/qixi-blueprint";
 import { gameEvents } from "../game/event-bus";
+import { Actors } from "./actors/Actors";
 import { TownScene3D } from "./scene/TownScene3D";
 import { worldCenter } from "./voxel/sceneCoords";
 
@@ -31,7 +32,7 @@ export function Town3DCanvas({ blueprint }: Town3DCanvasProps) {
     >
       <color attach="background" args={["#1d3b3f"]} />
       <TownScene3D blueprint={active} onGroundClick={handleGroundClick}>
-        {/* Task 6 起在这里挂 Actors,Task 11 挂 Buildings,Task 12 挂 WalkableGrid */}
+        <Actors />
       </TownScene3D>
     </Canvas>
   );
