@@ -21,6 +21,7 @@
   ```bash
   pnpm generate:sprites          # 生成全部；或 pnpm generate:sprites npc_lin_xia 生成单个
   ```
+- **2D / 3D 双视图**：顶栏一键切换。3D 视图是可 360° 环绕的体素小镇 —— 居民是代码生成的体素模型（不依赖任何外部建模工具），建筑由 Blueprint 程序化生成，光照跟随世界时间从正午走到黄昏再入夜（夜间窗户自发光），带像素小地图与真实阴影。**默认 3D**，选择被本地记住。验证记录见 [docs/voxel-3d-verification.md](docs/voxel-3d-verification.md)。
 
 M2 提供旧库迁移、版本冲突、幂等、事务回滚和断线恢复。M3 在此基础上加入 OpenAI-compatible Responses/Chat Provider、受限候选选择、一次校验修复、两次请求尝试、每 Tick 调用预算和与世界状态同事务保存的 AI Trace。
 
@@ -81,7 +82,7 @@ docker compose up --build -d
 ## 工程结构
 
 ```text
-apps/web             React + Phaser + TanStack Query + Zustand
+apps/web             React + Three.js/Phaser(可切换渲染器)+ TanStack Query + Zustand
 apps/server          Fastify + SQLite/WAL + Drizzle + WebSocket
 packages/shared      前后端共享 Zod Schema 与 TypeScript 类型
 ```
