@@ -1,8 +1,11 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { OrbitControls } from "@react-three/drei";
 import type { WorldBlueprint } from "@ai-town/shared";
+import { Buildings } from "./Buildings";
 import { GroundMesh } from "./GroundMesh";
 import { Sun } from "./Sun";
+import { sunFromGameMinute } from "./sunFromGameMinute";
+import { useWorldMinute } from "./useWorldMinute";
 import { worldCenter } from "../voxel/sceneCoords";
 
 /** 俯仰夹取:0 = 正上方俯视,π/2 = 贴地平线。上下都留余量,既能看全小镇又不穿到地面以下。 */
@@ -18,6 +21,9 @@ export function TownScene3D({ blueprint, children, onGroundClick }: {
   onGroundClick: (world: { x: number; y: number }) => void;
 }) {
   const [cx, , cz] = worldCenter(blueprint.canvas);
+  // 夜里点亮窗户。在场景层推导而不是从入口组件传下来,省掉一层只为透传的 prop。
+  const gameMinute = useWorldMinute();
+  const litWindows = useMemo(() => sunFromGameMinute(gameMinute).isNight, [gameMinute]);
 
   return (
     <>
@@ -33,6 +39,7 @@ export function TownScene3D({ blueprint, children, onGroundClick }: {
         screenSpacePanning={false}
       />
       <GroundMesh blueprint={blueprint} onGroundClick={onGroundClick} />
+      <Buildings blueprint={blueprint} litWindows={litWindows} />
       {children}
     </>
   );

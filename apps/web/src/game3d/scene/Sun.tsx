@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useWorldStore } from "../../state/world-store";
 import { sunFromGameMinute } from "./sunFromGameMinute";
+import { useWorldMinute } from "./useWorldMinute";
 
 const DISTANCE = 900;
 /** 阴影正交相机半宽:要盖住整张地图(半对角 ~546),再留点余量。 */
@@ -9,8 +9,7 @@ const SHADOW_SPAN_FACTOR = 0.75;
 
 /** 世界时间驱动方向光:方位角决定影子方向,高度角决定强度与色温。 */
 export function Sun({ canvas }: { canvas: { width: number; height: number } }) {
-  // 每 5 分钟量化一次再进 useMemo,避免每个 tick 都重建光照对象
-  const gameMinute = useWorldStore((state) => Math.floor((state.world?.gameMinute ?? 12 * 60) / 5) * 5);
+  const gameMinute = useWorldMinute();
   const sun = useMemo(() => sunFromGameMinute(gameMinute), [gameMinute]);
 
   const lightRef = useRef<THREE.DirectionalLight>(null);
