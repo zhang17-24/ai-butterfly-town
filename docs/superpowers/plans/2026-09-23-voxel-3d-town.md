@@ -215,10 +215,11 @@ git commit -m "feat(web): add 3D deps and world/scene coordinate mapping"
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { qixiBlueprint } from "@ai-town/shared/qixi-blueprint";
+import { qixiBlueprint, qixiPixelStyle } from "@ai-town/shared/qixi-blueprint";
 import { GROUND_PALETTE, planGroundQuads } from "./groundPlan";
 
-const palette = new Set(Object.values(GROUND_PALETTE));
+/** 断言的是"地面颜色取自锁定调色板"这条 spec 约束,所以集合来自 qixiPixelStyle 而不是 GROUND_PALETTE 自身 —— 用自己的值建集合等于什么都没断言。 */
+const lockedPalette = new Set<string>(qixiPixelStyle.palette);
 
 describe("planGroundQuads", () => {
   it("把 water 地点铺成一层水面 quad", () => {
@@ -254,7 +255,7 @@ describe("planGroundQuads", () => {
 
   it("所有颜色都取自锁定调色板", () => {
     for (const quad of planGroundQuads(qixiBlueprint)) {
-      expect(palette.has(quad.color)).toBe(true);
+      expect(lockedPalette.has(quad.color)).toBe(true);
     }
   });
 });
